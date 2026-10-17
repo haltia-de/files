@@ -1,0 +1,508 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0
+"""Файлы: folders and files in large rows.
+
+The row of places under the header (Дом, Документы, Загрузки, Изображения,
+Музыка, Видео, a memory card when one is in, Система) jumps there; "←"
+goes up a folder. A tap on a folder opens it, a tap on a file opens it in
+the program for it: text in Блокнот (b8k-text), pictures here, video and
+sound in b8k-vplay, PDF and web pages in Firefox, anything else with the
+system's default. A long press offers Копировать, Вырезать, Переименовать
+and Удалить (to the trash); «Вставить» puts what was copied or cut into
+the folder shown. Hidden files stay hidden until «Скрытые» shows them.
+"""
+import os
+import shutil
+import subprocess
+import sys
+import threading
+import time
+
+import gi
+
+gi.require_version("Gdk", "3.0")
+gi.require_version("GdkPixbuf", "2.0")
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, GObject, Gtk, Pango
+
+sys.path.insert(0, "/usr/local/share/b8k/python")
+try:
+    import b8k_ui
+except ImportError:
+    b8k_ui = None
+
+HOME = os.path.expanduser("~")
+TEXT = "/usr/local/bin/b8k-text"
+PLAYER = "/usr/local/bin/b8k-vplay"
+FUZZEL_INI = "/usr/local/share/b8k/fuzzel-ask.ini"
+LIST_MAX = 2000
+
+CSS = b"""
+window, .page { background-color: #e6e6e4; }
+headerbar label.title { font-size: 30px; font-weight: bold; color: #2e3436; }
+button.place, button.tool {
+  background-image: none;
+  border: none;
+  box-shadow: none;
+  border-radius: 16px;
+  min-height: 60px;
+  font-size: 21px;
+  padding: 0 16px;
+  background-color: #f2f2f0;
+  color: #2e3436;
+}
+button.place.current { background-color: #c4dcf7; }
+button.tool.paste { background-color: #3584e4; color: #ffffff; }
+button.tool.on { background-color: #c4dcf7; }
+list, row { background-color: #f2f2f0; }
+row { padding: 6px 12px; }
+row:hover { background-color: #e8e8e6; }
+row:active { background-color: #c4dcf7; }
+row label.name { font-size: 24px; color: #2e3436; }
+row label.sub { font-size: 18px; color: #5e5c64; }
+label.note { font-size: 24px; color: #5e5c64; }
+.viewer { background-color: #000000; }
+dialog entry { font-size: 26px; min-height: 64px; }
+dialog label { font-size: 24px; }
+dialog button { font-size: 22px; min-height: 60px; padding: 0 24px; }
+"""
+
+
+def buzzer():
+    return b8k_ui.Buzz() if b8k_ui else (lambda *_a: True)
+
+
+def menu(title, items):
+    """A list question in the shell's style (fuzzel); the index or None."""
+    try:
+        res = subprocess.run(
+            ["fuzzel", "--config", FUZZEL_INI, "--dmenu", "--index", "--mesg", title,
+             "--cache", "/dev/null", "--select-index", str(len(items))],
+            input="\n".join(items + ["Отмена"]) + "\n",
+            capture_output=True, text=True, timeout=600)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    out = res.stdout.strip()
+    return int(out) if out.isdigit() and int(out) < len(items) else None
+
+
+def nice_size(n):
+    for unit in ("Б", "КБ", "МБ", "ГБ"):
+        if n < 1024 or unit == "ГБ":
+            return ("%d %s" if unit == "Б" else "%.1f %s") % (n, unit)
+        n /= 1024.0
+    return ""
+
+
+def objects(n):
+    if n == 0:
+        return "пусто"
+    tail = n % 100
+    if 11 <= tail <= 14 or n % 10 in (0, 5, 6, 7, 8, 9):
+        word = "объектов"
+    elif n % 10 == 1:
+        word = "объект"
+    else:
+        word = "объекта"
+    return "%d %s" % (n, word)
+
+
+def xdg_dir(name, fallbacks):
+    try:
+        out = subprocess.run(["xdg-user-dir", name], capture_output=True, text=True,
+                             timeout=3).stdout.strip()
+        if out and out != HOME and os.path.isdir(out):
+            return out
+    except (OSError, subprocess.SubprocessError):
+        pass
+    for fallback in fallbacks:
+        path = os.path.join(HOME, fallback)
+        if os.path.isdir(path):
+            return path
+    return None
+
+
+def places():
+    out = [("Дом", HOME)]
+    # The folder by its XDG name, else by the Russian or the English one.
+    for key, ru, en in (("DOCUMENTS", "Документы", "Documents"),
+                        ("DOWNLOAD", "Загрузки", "Downloads"),
+                        ("PICTURES", "Изображения", "Pictures"),
+                        ("MUSIC", "Музыка", "Music"), ("VIDEOS", "Видео", "Videos")):
+        path = xdg_dir(key, (ru, en))
+        if path:
+            out.append((ru, path))
+    for base in ("/media", "/run/media/" + os.environ.get("USER", "user"), "/mnt"):
+        try:
+            for name in sorted(os.listdir(base)):
+                path = os.path.join(base, name)
+                if os.path.ismount(path):
+                    out.append(("Карта памяти" if "sd" in name or "mmc" in name else name, path))
+        except OSError:
+            pass
+    out.append(("Система", "/"))
+    return out
+
+
+class Files(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="b8k.Files", flags=Gio.ApplicationFlags.HANDLES_OPEN)
+        self.win = None
+        self.path = HOME
+        self.hidden = False
+        self.clip = None  # ("copy" | "cut", [paths])
+        self.viewer = None
+
+    def do_open(self, files, _n, _hint):
+        self.do_activate()
+        path = files[0].get_path() if files else None
+        if path and os.path.isdir(path):
+            self.go(path)
+
+    # --- the window ---------------------------------------------------------
+    def do_activate(self):
+        if self.win:
+            self.win.present()
+            return
+        buzz = buzzer()
+        GObject.type_class_ref(Gtk.Button)
+        GObject.add_emission_hook(Gtk.Button, "pressed", buzz)
+        provider = Gtk.CssProvider()
+        provider.load_from_data((b8k_ui.HEADER_CSS if b8k_ui else b"") + CSS)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.win = Gtk.ApplicationWindow(application=self, title="Файлы")
+        self.win.set_default_size(1160, 800)
+        self.header = Gtk.HeaderBar(title="Файлы")
+        self.up_btn = Gtk.Button(label="←")
+        self.up_btn.get_style_context().add_class("back")
+        self.up_btn.connect("clicked", lambda *_a: self.up())
+        self.header.pack_start(self.up_btn)
+        self.win.set_titlebar(self.header)
+
+        self.stack = Gtk.Stack()
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        page.set_border_width(16)
+        page.get_style_context().add_class("page")
+
+        self.places_box = Gtk.Box(spacing=8)
+        scroll_places = Gtk.ScrolledWindow(vscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll_places.add(self.places_box)
+        page.pack_start(scroll_places, False, False, 0)
+
+        tools = Gtk.Box(spacing=8)
+        self.paste_btn = Gtk.Button(label="Вставить")
+        self.paste_btn.get_style_context().add_class("tool")
+        self.paste_btn.get_style_context().add_class("paste")
+        self.paste_btn.connect("clicked", lambda *_a: self.paste())
+        self.paste_btn.set_no_show_all(True)
+        tools.pack_start(self.paste_btn, False, False, 0)
+        self.where = Gtk.Label(xalign=0)
+        self.where.set_ellipsize(Pango.EllipsizeMode.START)
+        self.where.get_style_context().add_class("note")
+        tools.pack_start(self.where, True, True, 0)
+        new_btn = Gtk.Button(label="Новая папка")
+        new_btn.get_style_context().add_class("tool")
+        new_btn.connect("clicked", lambda *_a: self.new_folder())
+        tools.pack_end(new_btn, False, False, 0)
+        self.hidden_btn = Gtk.Button(label="Скрытые")
+        self.hidden_btn.get_style_context().add_class("tool")
+        self.hidden_btn.connect("clicked", lambda *_a: self.toggle_hidden())
+        tools.pack_end(self.hidden_btn, False, False, 0)
+        page.pack_start(tools, False, False, 0)
+
+        self.scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.list.connect("row-activated", self.on_row)
+        self.scroll.add(self.list)
+        page.pack_start(self.scroll, True, True, 0)
+        self.stack.add_named(page, "list")
+
+        self.viewer = Gtk.Image()
+        ev = Gtk.EventBox()
+        ev.get_style_context().add_class("viewer")
+        ev.add(self.viewer)
+        ev.connect("button-release-event", lambda *_a: self.close_viewer())
+        self.stack.add_named(ev, "viewer")
+        self.win.add(self.stack)
+
+        # A long press on a row offers what can be done with it.
+        self.hold = Gtk.GestureLongPress(widget=self.list)
+        self.hold.connect("pressed", self.on_hold)
+        self.held = False
+        self.win.show_all()
+        self.go(HOME)
+
+    def fill_places(self):
+        for child in self.places_box.get_children():
+            self.places_box.remove(child)
+            child.destroy()
+        for name, path in places():
+            btn = Gtk.Button(label=name)
+            ctx = btn.get_style_context()
+            ctx.add_class("place")
+            if path == self.path:
+                ctx.add_class("current")
+            btn.connect("clicked", lambda _b, p=path: self.go(p))
+            self.places_box.pack_start(btn, False, False, 0)
+        self.places_box.show_all()
+
+    # --- folders ------------------------------------------------------------
+    def go(self, path):
+        try:
+            names = os.listdir(path)
+        except OSError as exc:
+            self.toast("Нельзя открыть: %s" % exc.strerror)
+            return
+        self.path = path
+        self.header.set_title(os.path.basename(path.rstrip("/")) or "Система")
+        self.where.set_text(path.replace(HOME, "~", 1) if path.startswith(HOME) else path)
+        self.up_btn.set_sensitive(path != "/")
+        self.fill_places()
+        if not self.hidden:
+            names = [n for n in names if not n.startswith(".")]
+        entries = []
+        for name in names[:LIST_MAX]:
+            full = os.path.join(path, name)
+            try:
+                st = os.stat(full)
+                is_dir = os.path.isdir(full)
+            except OSError:
+                continue
+            entries.append((not is_dir, name.casefold(), name, full, st, is_dir))
+        entries.sort()
+        for child in self.list.get_children():
+            self.list.remove(child)
+            child.destroy()
+        for _f, _k, name, full, st, is_dir in entries:
+            self.list.add(self.row(name, full, st, is_dir))
+        if not entries:
+            row = Gtk.ListBoxRow(activatable=False)
+            label = Gtk.Label(label="Пустая папка")
+            label.get_style_context().add_class("note")
+            row.add(label)
+            row.full = None
+            self.list.add(row)
+        self.list.show_all()
+        self.scroll.get_vadjustment().set_value(0)
+
+    def row(self, name, full, st, is_dir):
+        row = Gtk.ListBoxRow()
+        row.full = full
+        row.is_dir = is_dir
+        box = Gtk.Box(spacing=16)
+        if is_dir:
+            gicon = Gio.ThemedIcon.new("folder")
+            try:
+                sub = objects(len(os.listdir(full)))
+            except OSError:
+                sub = "нет доступа"
+        else:
+            ctype = Gio.content_type_guess(name, None)[0]
+            gicon = Gio.content_type_get_icon(ctype)
+            sub = "%s · %s" % (nice_size(st.st_size),
+                               time.strftime("%d.%m.%Y %H:%M", time.localtime(st.st_mtime)))
+        image = Gtk.Image.new_from_gicon(gicon, Gtk.IconSize.DIALOG)
+        image.set_pixel_size(48)
+        box.pack_start(image, False, False, 0)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        label = Gtk.Label(label=name, xalign=0)
+        label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        label.get_style_context().add_class("name")
+        text.pack_start(label, False, False, 0)
+        small = Gtk.Label(label=sub, xalign=0)
+        small.get_style_context().add_class("sub")
+        text.pack_start(small, False, False, 0)
+        box.pack_start(text, True, True, 0)
+        row.add(box)
+        return row
+
+    def up(self):
+        if self.stack.get_visible_child_name() == "viewer":
+            self.close_viewer()
+            return
+        parent = os.path.dirname(self.path.rstrip("/")) or "/"
+        self.go(parent)
+
+    def toggle_hidden(self):
+        self.hidden = not self.hidden
+        ctx = self.hidden_btn.get_style_context()
+        (ctx.add_class if self.hidden else ctx.remove_class)("on")
+        self.go(self.path)
+
+    def on_row(self, _list, row):
+        if self.held:
+            self.held = False
+            return
+        if not getattr(row, "full", None):
+            return
+        if row.is_dir:
+            self.go(row.full)
+        else:
+            self.open_file(row.full)
+
+    # --- opening files -----------------------------------------------------
+    def open_file(self, path):
+        ctype = Gio.content_type_guess(path, None)[0] or ""
+        mime = Gio.content_type_get_mime_type(ctype) or ""
+        if mime.startswith("image/"):
+            self.show_image(path)
+        elif mime.startswith("text/") or mime in ("application/json", "application/x-shellscript",
+                                                   "application/xml", "application/x-yaml"):
+            self.spawn([TEXT, path] if os.access(TEXT, os.X_OK) else ["xdg-open", path])
+        elif mime.startswith(("video/", "audio/")) and os.access(PLAYER, os.X_OK):
+            self.spawn([PLAYER, "--title", os.path.basename(path), path])
+        elif mime in ("application/pdf", "text/html"):
+            self.spawn(["/usr/local/bin/b8k-launch", "url", "file://" + path])
+        else:
+            try:
+                Gio.AppInfo.launch_default_for_uri("file://" + path, None)
+            except GLib.Error:
+                self.toast("Нет программы для этого файла.")
+
+    def spawn(self, argv):
+        try:
+            subprocess.Popen(argv, start_new_session=True, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        except OSError:
+            self.toast("Не удалось открыть.")
+
+    def show_image(self, path):
+        alloc = self.win.get_allocation()
+        try:
+            pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, alloc.width,
+                                                          max(1, alloc.height - 104), True)
+        except GLib.Error:
+            self.toast("Не удалось открыть картинку.")
+            return
+        self.viewer.set_from_pixbuf(pix)
+        self.header.set_title(os.path.basename(path))
+        self.up_btn.set_sensitive(True)
+        self.stack.set_visible_child_name("viewer")
+
+    def close_viewer(self):
+        self.viewer.clear()
+        self.stack.set_visible_child_name("list")
+        self.header.set_title(os.path.basename(self.path.rstrip("/")) or "Система")
+        return True
+
+    # --- what can be done with a file -----------------------------------------
+    def on_hold(self, _g, _x, y):
+        row = self.list.get_row_at_y(int(y))  # list coordinates already scroll
+        if not row or not getattr(row, "full", None):
+            return
+        # The release after a long press must not also open the row.
+        self.held = True
+        GLib.timeout_add(1500, lambda: setattr(self, "held", False))
+        full = row.full
+        name = os.path.basename(full)
+
+        def worker():
+            choice = menu("«%s»" % name, ["Копировать", "Вырезать", "Переименовать", "Удалить"])
+            if choice is not None:
+                GLib.idle_add(self.act, choice, full)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def act(self, choice, full):
+        name = os.path.basename(full)
+        if choice in (0, 1):
+            self.clip = ("copy" if choice == 0 else "cut", [full])
+            self.paste_btn.set_label("Вставить «%s»" % name if len(name) < 24 else "Вставить")
+            self.paste_btn.show()
+        elif choice == 2:
+            new = self.ask_name("Новое имя", name)
+            if new and new != name:
+                try:
+                    os.rename(full, os.path.join(os.path.dirname(full), new))
+                except OSError as exc:
+                    self.toast("Не удалось: %s" % exc.strerror)
+                self.go(self.path)
+        elif choice == 3:
+            try:
+                Gio.File.new_for_path(full).trash(None)
+            except GLib.Error:
+                try:
+                    shutil.rmtree(full) if os.path.isdir(full) else os.unlink(full)
+                except OSError as exc:
+                    self.toast("Не удалось удалить: %s" % exc.strerror)
+            self.go(self.path)
+        return False
+
+    def paste(self):
+        if not self.clip:
+            return
+        how, paths = self.clip
+        dest = self.path
+
+        def worker():
+            err = None
+            for src in paths:
+                target = os.path.join(dest, os.path.basename(src))
+                if os.path.exists(target):
+                    base, ext = os.path.splitext(target)
+                    n = 2
+                    while os.path.exists("%s (%d)%s" % (base, n, ext)):
+                        n += 1
+                    target = "%s (%d)%s" % (base, n, ext)
+                try:
+                    if how == "cut":
+                        shutil.move(src, target)
+                    elif os.path.isdir(src):
+                        shutil.copytree(src, target, symlinks=True)
+                    else:
+                        shutil.copy2(src, target)
+                except (OSError, shutil.Error) as exc:
+                    err = str(exc)
+            GLib.idle_add(self.pasted, err, how)
+
+        self.paste_btn.set_sensitive(False)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def pasted(self, err, how):
+        self.paste_btn.set_sensitive(True)
+        if how == "cut" or not err:
+            self.clip = None
+            self.paste_btn.hide()
+        if err:
+            self.toast("Не всё скопировалось: %s" % err)
+        self.go(self.path)
+        return False
+
+    def new_folder(self):
+        name = self.ask_name("Название новой папки", "Новая папка")
+        if not name:
+            return
+        try:
+            os.mkdir(os.path.join(self.path, name))
+        except OSError as exc:
+            self.toast("Не удалось: %s" % exc.strerror)
+        self.go(self.path)
+
+    def ask_name(self, title, value):
+        dialog = Gtk.Dialog(title=title, transient_for=self.win, modal=True)
+        dialog.add_button("Отмена", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Готово", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        box = dialog.get_content_area()
+        box.set_spacing(12)
+        box.set_border_width(16)
+        box.pack_start(Gtk.Label(label=title), False, False, 0)
+        entry = Gtk.Entry(text=value, activates_default=True)
+        box.pack_start(entry, False, False, 0)
+        dialog.show_all()
+        res = dialog.run()
+        text = entry.get_text().strip().replace("/", "")
+        dialog.destroy()
+        return text if res == Gtk.ResponseType.OK and text not in ("", ".", "..") else None
+
+    def toast(self, text):
+        dialog = Gtk.MessageDialog(transient_for=self.win, modal=True,
+                                   message_type=Gtk.MessageType.INFO,
+                                   buttons=Gtk.ButtonsType.OK, text=text)
+        dialog.run()
+        dialog.destroy()
+
+
+if __name__ == "__main__":
+    sys.exit(Files().run(sys.argv))
