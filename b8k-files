@@ -7,8 +7,8 @@ The row of places under the header (Дом, Документы, Загрузки
 goes up a folder. A tap on a folder opens it, a tap on a file opens it in
 the program for it: text in Блокнот (b8k-text), pictures here, video and
 sound in b8k-vplay, PDF and web pages in Firefox, anything else with the
-system's default. A long press offers Копировать, Вырезать, Переименовать
-and Удалить (to the trash); «Вставить» puts what was copied or cut into
+system's default. A long press offers Редактировать (a text file, in
+Блокнот), Копировать, Вырезать, Переименовать and Удалить (to the trash); «Вставить» puts what was copied or cut into
 the folder shown. Hidden files stay hidden until «Скрытые» shows them.
 """
 import os
@@ -84,6 +84,16 @@ def menu(title, items):
         return None
     out = res.stdout.strip()
     return int(out) if out.isdigit() and int(out) < len(items) else None
+
+
+TEXT_MIMES = ("application/json", "application/x-shellscript", "application/xml",
+              "application/x-yaml")
+
+
+def is_text(path):
+    ctype = Gio.content_type_guess(path, None)[0] or ""
+    mime = Gio.content_type_get_mime_type(ctype) or ""
+    return mime.startswith("text/") or mime in TEXT_MIMES
 
 
 def nice_size(n):
@@ -347,8 +357,7 @@ class Files(Gtk.Application):
         mime = Gio.content_type_get_mime_type(ctype) or ""
         if mime.startswith("image/"):
             self.show_image(path)
-        elif mime.startswith("text/") or mime in ("application/json", "application/x-shellscript",
-                                                   "application/xml", "application/x-yaml"):
+        elif mime.startswith("text/") or mime in TEXT_MIMES:
             self.spawn([TEXT, path] if os.access(TEXT, os.X_OK) else ["xdg-open", path])
         elif mime.startswith(("video/", "audio/")) and os.access(PLAYER, os.X_OK):
             self.spawn([PLAYER, "--title", os.path.basename(path), path])
@@ -396,21 +405,26 @@ class Files(Gtk.Application):
         GLib.timeout_add(1500, lambda: setattr(self, "held", False))
         full = row.full
         name = os.path.basename(full)
+        actions = ["Копировать", "Вырезать", "Переименовать", "Удалить"]
+        if not row.is_dir and is_text(full):
+            actions.insert(0, "Редактировать")
 
         def worker():
-            choice = menu("«%s»" % name, ["Копировать", "Вырезать", "Переименовать", "Удалить"])
+            choice = menu("«%s»" % name, actions)
             if choice is not None:
-                GLib.idle_add(self.act, choice, full)
+                GLib.idle_add(self.act, actions[choice], full)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def act(self, choice, full):
+    def act(self, action, full):
         name = os.path.basename(full)
-        if choice in (0, 1):
-            self.clip = ("copy" if choice == 0 else "cut", [full])
+        if action == "Редактировать":
+            self.spawn([TEXT, full] if os.access(TEXT, os.X_OK) else ["xdg-open", full])
+        elif action in ("Копировать", "Вырезать"):
+            self.clip = ("copy" if action == "Копировать" else "cut", [full])
             self.paste_btn.set_label("Вставить «%s»" % name if len(name) < 24 else "Вставить")
             self.paste_btn.show()
-        elif choice == 2:
+        elif action == "Переименовать":
             new = self.ask_name("Новое имя", name)
             if new and new != name:
                 try:
@@ -418,7 +432,7 @@ class Files(Gtk.Application):
                 except OSError as exc:
                     self.toast("Не удалось: %s" % exc.strerror)
                 self.go(self.path)
-        elif choice == 3:
+        elif action == "Удалить":
             try:
                 Gio.File.new_for_path(full).trash(None)
             except GLib.Error:
