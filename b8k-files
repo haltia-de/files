@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0
-"""Файлы: folders and files in large rows.
+"""Файлы: folders and files in large rows or tiles; with --gallery, Галерея
+(gallery.py): every photo, video and sound file on the tablet in one place.
 
 The row of places under the header (Дом, Документы, Загрузки, Изображения,
 Музыка, Видео, a memory card when one is in, Система) jumps there; "←"
-goes up a folder. A tap on a folder opens it, a tap on a file opens it in
-the program for it: text in Блокнот (b8k-text), pictures here, video and
-sound in b8k-vplay, PDF and web pages in Firefox, anything else with the
-system's default. A long press offers Редактировать (a text file, in
+goes up a folder; «Плитки»/«Список» switches how a folder shows, photos,
+videos and sound covers as small pictures either way. A tap on a folder
+opens it, a tap on a file opens it in the program for it: text in Блокнот
+(b8k-text), photos here (the viewer goes through the folder's photos),
+video in b8k-vplay, sound in the bar at the bottom (the folder's sound
+files one after another), PDF and web pages in Firefox, anything else
+with the system's default. A long press offers Редактировать (a text file, in
 Блокнот), Копировать, Вырезать, Переименовать and Удалить (to the trash); «Вставить» puts what was copied or cut into
 the folder shown. Hidden files stay hidden until «Скрытые» shows them.
 """
@@ -19,6 +23,12 @@ import threading
 import time
 
 import gi
+from gi.repository import GLib
+
+# The window's Wayland app id is the program name: Галерея's own, so the
+# shell (apps.conf app_ids) tells it from Файлы.
+if "--gallery" in sys.argv[1:]:
+    GLib.set_prgname("b8k-gallery")
 
 gi.require_version("Gdk", "3.0")
 gi.require_version("GdkPixbuf", "2.0")
@@ -30,12 +40,20 @@ try:
     import b8k_ui
 except ImportError:
     b8k_ui = None
+# library, media and gallery: next to this file in a checkout, else installed.
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, HERE if os.path.exists(os.path.join(HERE, "media.py"))
+                else "/usr/local/lib/b8k-files")
+import library  # noqa: E402
+import media  # noqa: E402
 
 HOME = os.path.expanduser("~")
 TEXT = "/usr/local/bin/b8k-text"
 PLAYER = "/usr/local/bin/b8k-vplay"
 FUZZEL_INI = "/usr/local/share/b8k/fuzzel-ask.ini"
 LIST_MAX = 2000
+CACHE = os.path.join(GLib.get_user_cache_dir(), "b8k-files")
+CONFIG = os.path.join(GLib.get_user_config_dir(), "b8k", "files.conf")
 
 CSS = b"""
 window, .page { background-color: #e6e6e4; }
@@ -61,7 +79,6 @@ row:active { background-color: #c4dcf7; }
 row label.name { font-size: 24px; color: #2e3436; }
 row label.sub { font-size: 18px; color: #5e5c64; }
 label.note { font-size: 24px; color: #5e5c64; }
-.viewer { background-color: #000000; }
 dialog entry { font-size: 26px; min-height: 64px; }
 dialog label { font-size: 24px; }
 dialog button { font-size: 22px; min-height: 60px; padding: 0 24px; }
@@ -154,6 +171,24 @@ def places():
     return out
 
 
+def tiles_chosen():
+    try:
+        with open(CONFIG, encoding="utf-8") as fh:
+            return "tiles = yes" in fh.read()
+    except OSError:
+        return False
+
+
+def choose_tiles(on):
+    try:
+        os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
+        with open(CONFIG + ".new", "w", encoding="utf-8") as fh:
+            fh.write("[files]\ntiles = %s\n" % ("yes" if on else "no"))
+        os.replace(CONFIG + ".new", CONFIG)
+    except OSError:
+        pass
+
+
 class Files(Gtk.Application):
     def __init__(self):
         super().__init__(application_id="b8k.Files", flags=Gio.ApplicationFlags.HANDLES_OPEN)
@@ -162,6 +197,8 @@ class Files(Gtk.Application):
         self.hidden = False
         self.clip = None  # ("copy" | "cut", [paths])
         self.viewer = None
+        self.tiles = tiles_chosen()
+        self.lib = library.Library(HOME, CACHE)
 
     def do_open(self, files, _n, _hint):
         self.do_activate()
@@ -178,7 +215,7 @@ class Files(Gtk.Application):
         GObject.type_class_ref(Gtk.Button)
         GObject.add_emission_hook(Gtk.Button, "pressed", buzz)
         provider = Gtk.CssProvider()
-        provider.load_from_data((b8k_ui.HEADER_CSS if b8k_ui else b"") + CSS)
+        provider.load_from_data((b8k_ui.HEADER_CSS if b8k_ui else b"") + CSS + media.CSS)
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.win = Gtk.ApplicationWindow(application=self, title="Файлы")
@@ -215,31 +252,29 @@ class Files(Gtk.Application):
         new_btn.get_style_context().add_class("tool")
         new_btn.connect("clicked", lambda *_a: self.new_folder())
         tools.pack_end(new_btn, False, False, 0)
+        self.tiles_btn = Gtk.Button(label="Список" if self.tiles else "Плитки")
+        self.tiles_btn.get_style_context().add_class("tool")
+        self.tiles_btn.connect("clicked", lambda *_a: self.toggle_tiles())
+        tools.pack_end(self.tiles_btn, False, False, 0)
         self.hidden_btn = Gtk.Button(label="Скрытые")
         self.hidden_btn.get_style_context().add_class("tool")
         self.hidden_btn.connect("clicked", lambda *_a: self.toggle_hidden())
         tools.pack_end(self.hidden_btn, False, False, 0)
         page.pack_start(tools, False, False, 0)
 
-        self.scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
-        self.list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-        self.list.connect("row-activated", self.on_row)
-        self.scroll.add(self.list)
-        page.pack_start(self.scroll, True, True, 0)
+        self.thumbs = media.Thumbs(self.lib)
+        self.grid = media.Grid(self.thumbs, self.on_item, self.on_hold)
+        page.pack_start(self.grid.scroll, True, True, 0)
         self.stack.add_named(page, "list")
 
-        self.viewer = Gtk.Image()
-        ev = Gtk.EventBox()
-        ev.get_style_context().add_class("viewer")
-        ev.add(self.viewer)
-        ev.connect("button-release-event", lambda *_a: self.close_viewer())
-        self.stack.add_named(ev, "viewer")
-        self.win.add(self.stack)
-
-        # A long press on a row offers what can be done with it.
-        self.hold = Gtk.GestureLongPress(widget=self.list)
-        self.hold.connect("pressed", self.on_hold)
-        self.held = False
+        self.viewer = media.Viewer(self.header.set_title, self.on_hold)
+        self.stack.add_named(self.viewer, "viewer")
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        outer.pack_start(self.stack, True, True, 0)
+        self.bar = media.SoundBar(self.thumbs, self.toast)
+        outer.pack_end(self.bar, False, False, 0)
+        self.win.add(outer)
+        self.win.connect("destroy", lambda *_a: self.bar.quit())
         self.win.show_all()
         self.go(HOME)
 
@@ -281,51 +316,33 @@ class Files(Gtk.Application):
                 continue
             entries.append((not is_dir, name.casefold(), name, full, st, is_dir))
         entries.sort()
-        for child in self.list.get_children():
-            self.list.remove(child)
-            child.destroy()
-        for _f, _k, name, full, st, is_dir in entries:
-            self.list.add(self.row(name, full, st, is_dir))
-        if not entries:
-            row = Gtk.ListBoxRow(activatable=False)
-            label = Gtk.Label(label="Пустая папка")
-            label.get_style_context().add_class("note")
-            row.add(label)
-            row.full = None
-            self.list.add(row)
-        self.list.show_all()
-        self.scroll.get_vadjustment().set_value(0)
+        items = [self.item(name, full, st, is_dir) for _f, _k, name, full, st, is_dir in entries]
+        if items:
+            self.grid.show([(None, items)], rows=not self.tiles)
+        else:
+            self.grid.show([(None, [{"kind": "note", "label": "Пустая папка", "sub": "",
+                                     "path": None}])], rows=True)
 
-    def row(self, name, full, st, is_dir):
-        row = Gtk.ListBoxRow()
-        row.full = full
-        row.is_dir = is_dir
-        box = Gtk.Box(spacing=16)
+    def item(self, name, full, st, is_dir):
+        """A folder or file as the grid shows it; media files get their small
+        picture from the library."""
         if is_dir:
-            gicon = Gio.ThemedIcon.new("folder")
             try:
                 sub = objects(len(os.listdir(full)))
             except OSError:
                 sub = "нет доступа"
+            return {"kind": "folder", "label": name, "path": full, "sub": sub, "dir": True}
+        kind = library.kind_of(name)
+        item = {"path": full, "size": st.st_size, "mtime": st.st_mtime, "label": name,
+                "sub": "%s · %s" % (nice_size(st.st_size),
+                                    time.strftime("%d.%m.%Y %H:%M",
+                                                  time.localtime(st.st_mtime)))}
+        if kind:
+            item["kind"] = kind
         else:
-            ctype = Gio.content_type_guess(name, None)[0]
-            gicon = Gio.content_type_get_icon(ctype)
-            sub = "%s · %s" % (nice_size(st.st_size),
-                               time.strftime("%d.%m.%Y %H:%M", time.localtime(st.st_mtime)))
-        image = Gtk.Image.new_from_gicon(gicon, Gtk.IconSize.DIALOG)
-        image.set_pixel_size(48)
-        box.pack_start(image, False, False, 0)
-        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        label = Gtk.Label(label=name, xalign=0)
-        label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-        label.get_style_context().add_class("name")
-        text.pack_start(label, False, False, 0)
-        small = Gtk.Label(label=sub, xalign=0)
-        small.get_style_context().add_class("sub")
-        text.pack_start(small, False, False, 0)
-        box.pack_start(text, True, True, 0)
-        row.add(box)
-        return row
+            item["kind"] = "file"
+            item["gicon"] = Gio.content_type_get_icon(Gio.content_type_guess(name, None)[0])
+        return item
 
     def up(self):
         if self.stack.get_visible_child_name() == "viewer":
@@ -340,26 +357,42 @@ class Files(Gtk.Application):
         (ctx.add_class if self.hidden else ctx.remove_class)("on")
         self.go(self.path)
 
-    def on_row(self, _list, row):
-        if self.held:
-            self.held = False
+    def toggle_tiles(self):
+        self.tiles = not self.tiles
+        choose_tiles(self.tiles)
+        self.tiles_btn.set_label("Список" if self.tiles else "Плитки")
+        self.go(self.path)
+
+    def on_item(self, item):
+        if not item.get("path"):
             return
-        if not getattr(row, "full", None):
-            return
-        if row.is_dir:
-            self.go(row.full)
+        if item.get("dir"):
+            self.go(item["path"])
         else:
-            self.open_file(row.full)
+            self.open_file(item["path"], item)
 
     # --- opening files -----------------------------------------------------
-    def open_file(self, path):
+    def shown(self, kind):
+        return [i for _l, items in self.grid.groups for i in items if i.get("kind") == kind]
+
+    def open_file(self, path, item=None):
         ctype = Gio.content_type_guess(path, None)[0] or ""
         mime = Gio.content_type_get_mime_type(ctype) or ""
-        if mime.startswith("image/"):
+        kind = item.get("kind") if item else None
+        if kind == "photo":
+            photos = self.shown("photo")
+            self.stack.set_visible_child_name("viewer")
+            self.up_btn.set_sensitive(True)
+            self.viewer.show(photos, photos.index(item))
+        elif kind == "audio":
+            sounds = self.shown("audio")
+            self.bar.play(sounds, sounds.index(item))
+        elif mime.startswith("image/"):
             self.show_image(path)
         elif mime.startswith("text/") or mime in TEXT_MIMES:
             self.spawn([TEXT, path] if os.access(TEXT, os.X_OK) else ["xdg-open", path])
         elif mime.startswith(("video/", "audio/")) and os.access(PLAYER, os.X_OK):
+            self.bar.pause()
             self.spawn([PLAYER, "--title", os.path.basename(path), path])
         elif mime in ("application/pdf", "text/html"):
             self.spawn(["/usr/local/bin/b8k-launch", "url", "file://" + path])
@@ -377,40 +410,36 @@ class Files(Gtk.Application):
             self.toast("Не удалось открыть.")
 
     def show_image(self, path):
-        alloc = self.win.get_allocation()
-        try:
-            pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, alloc.width,
-                                                          max(1, alloc.height - 104), True)
-        except GLib.Error:
-            self.toast("Не удалось открыть картинку.")
-            return
-        self.viewer.set_from_pixbuf(pix)
-        self.header.set_title(os.path.basename(path))
-        self.up_btn.set_sensitive(True)
+        """A picture of a kind the library does not list (an .ico, ...)."""
+        st = os.stat(path)
+        item = {"path": path, "kind": "photo", "size": st.st_size, "mtime": st.st_mtime}
         self.stack.set_visible_child_name("viewer")
+        self.up_btn.set_sensitive(True)
+        self.viewer.show([item], 0)
 
     def close_viewer(self):
-        self.viewer.clear()
+        self.viewer.close()
         self.stack.set_visible_child_name("list")
         self.header.set_title(os.path.basename(self.path.rstrip("/")) or "Система")
+        self.up_btn.set_sensitive(self.path != "/")
         return True
 
     # --- what can be done with a file -----------------------------------------
-    def on_hold(self, _g, _x, y):
-        row = self.list.get_row_at_y(int(y))  # list coordinates already scroll
-        if not row or not getattr(row, "full", None):
+    def on_hold(self, item):
+        if not item.get("path"):
             return
-        # The release after a long press must not also open the row.
-        self.held = True
-        GLib.timeout_add(1500, lambda: setattr(self, "held", False))
-        full = row.full
+        full = item["path"]
+        is_dir = bool(item.get("dir"))
         name = os.path.basename(full)
         actions = ["Копировать", "Вырезать", "Переименовать", "Удалить"]
-        if not row.is_dir and is_text(full):
+        if not is_dir and is_text(full):
             actions.insert(0, "Редактировать")
 
         def worker():
             choice = menu("«%s»" % name, actions)
+            if choice is not None and actions[choice] == "Удалить" and b8k_ui and \
+                    not b8k_ui.ask("Удалить «%s»?" % name, "Удалить"):
+                return
             if choice is not None:
                 GLib.idle_add(self.act, actions[choice], full)
 
@@ -440,6 +469,9 @@ class Files(Gtk.Application):
                     shutil.rmtree(full) if os.path.isdir(full) else os.unlink(full)
                 except OSError as exc:
                     self.toast("Не удалось удалить: %s" % exc.strerror)
+            if self.stack.get_visible_child_name() == "viewer":
+                if not self.viewer.drop({"path": full}):
+                    self.close_viewer()
             self.go(self.path)
         return False
 
@@ -516,7 +548,12 @@ class Files(Gtk.Application):
                                    buttons=Gtk.ButtonsType.OK, text=text)
         dialog.run()
         dialog.destroy()
+        return False
 
 
 if __name__ == "__main__":
+    if "--gallery" in sys.argv[1:]:
+        import gallery
+
+        sys.exit(gallery.Gallery(b8k_ui).run([a for a in sys.argv if a != "--gallery"]))
     sys.exit(Files().run(sys.argv))
