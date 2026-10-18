@@ -366,7 +366,7 @@ class Viewer(Gtk.Overlay):
         def work():
             try:
                 pix = library.pixbuf_of(item["path"], side)
-            except GLib.Error:
+            except (GLib.Error, ValueError):
                 pix = None
             GLib.idle_add(self._loaded, token, pix)
 

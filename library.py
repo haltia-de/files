@@ -37,6 +37,10 @@ KINDS = ("photo", "video", "audio")
 LIMIT = 30000  # files at most, so a huge card cannot eat the memory
 DEPTH = 12
 THUMB = 256  # px, square
+# Pictures come from anywhere (chats, cards): one too large to decode in the
+# tablet's memory is left alone.
+MAX_PIXELS = 60 * 1000 * 1000
+MAX_COVER = 8 * 1024 * 1024
 # ffmpeg and ffprobe read files that came from anywhere (a chat, a card):
 # only the file itself, no network and no playlists reaching other files.
 SAFE = ["-protocol_whitelist", "file", "-format_whitelist",
@@ -208,13 +212,12 @@ def pixbuf_of(path, size):
     """A picture file at about size px on its short side, upright."""
     from gi.repository import GdkPixbuf
 
-    _fmt, w, h = GdkPixbuf.Pixbuf.get_file_info(path)
-    if w and h:
-        k = size / float(min(w, h))
-        pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, max(1, int(w * k + 0.5)),
-                                                      max(1, int(h * k + 0.5)), True)
-    else:
-        pix = GdkPixbuf.Pixbuf.new_from_file(path)
+    _fmt, w, h = GdkPixbuf.Pixbuf.get_file_info(path)  # -1 when it cannot tell
+    if w <= 0 or h <= 0 or w * h > MAX_PIXELS:
+        raise ValueError("picture too large or of unknown size: %s" % path)
+    k = size / float(min(w, h))
+    pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, max(1, int(w * k + 0.5)),
+                                                  max(1, int(h * k + 0.5)), True)
     return pix.apply_embedded_orientation() or pix
 
 
@@ -407,9 +410,17 @@ class Library:
                     pass
         else:
             data = cover_bytes(path)
-            if not data:
+            if not data or len(data) > MAX_COVER:
                 return False
             loader = GdkPixbuf.PixbufLoader()
+
+            def prepared(ld, w, h):
+                if w * h > MAX_PIXELS:
+                    raise ValueError("cover too large")
+                k = min(1.0, THUMB / float(max(w, h, 1)))
+                ld.set_size(max(1, int(w * k)), max(1, int(h * k)))
+
+            loader.connect("size-prepared", prepared)
             loader.write(data)
             loader.close()
             pix = loader.get_pixbuf()
