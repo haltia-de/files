@@ -37,6 +37,10 @@ KINDS = ("photo", "video", "audio")
 LIMIT = 30000  # files at most, so a huge card cannot eat the memory
 DEPTH = 12
 THUMB = 256  # px, square
+# ffmpeg and ffprobe read files that came from anywhere (a chat, a card):
+# only the file itself, no network and no playlists reaching other files.
+SAFE = ["-protocol_whitelist", "file", "-format_whitelist",
+        "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,mpeg,mpegts,asf,flv,mp3,ogg,flac,wav,aac,amr"]
 MONTHS = ("Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август",
           "Сентябрь", "Октябрь", "Ноябрь", "Декабрь")
 MONTHS_OF = ("янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя",
@@ -150,8 +154,9 @@ def probe(path, kind):
     if kind in ("video", "audio") and info["duration"] is None:
         try:
             out = subprocess.run(
-                ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
-                 "default=nw=1:nk=1", path], capture_output=True, text=True, timeout=20)
+                ["ffprobe", "-v", "error"] + SAFE +
+                ["-show_entries", "format=duration", "-of", "default=nw=1:nk=1",
+                 "file:" + path], capture_output=True, text=True, timeout=20)
             info["duration"] = float(out.stdout.strip())
         except (OSError, ValueError, subprocess.SubprocessError):
             pass
@@ -385,7 +390,8 @@ class Library:
             try:
                 for at in (min(3.0, dur / 3.0) if dur else 1.0, 0.0):
                     subprocess.run(
-                        ["ffmpeg", "-v", "error", "-y", "-ss", "%.2f" % at, "-i", path,
+                        ["ffmpeg", "-v", "error", "-y"] + SAFE + ["-ss", "%.2f" % at, "-i",
+                                                                  "file:" + path,
                          "-frames:v", "1", "-vf",
                          "scale=%d:%d:force_original_aspect_ratio=increase" % (THUMB, THUMB),
                          frame], capture_output=True, timeout=60)
