@@ -3,8 +3,8 @@
 # Install b8k-files (Файлы, and Галерея as b8k-files --gallery) into a root
 # file system: sh install.sh [ROOT] (ROOT empty or / for this system). The
 # tablet shell's build runs it for its image. It needs Python 3 with
-# PyGObject (GTK 3); for media also python-mpv with libmpv (sound),
-# ffmpeg (video pictures and lengths) and mutagen (sound tags and covers).
+# PyGObject (GTK 3) and b8k-compat (github.com/trudenboy/b8k-compat), which
+# brings sound, small pictures and the photo viewer.
 set -eu
 root=${1:-}
 root=${root%/}

@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0
-"""The media library: finding, kinds, grouping, small pictures.
-Run: python3 tests/test_library.py (needs PyGObject with GdkPixbuf)."""
+"""The media library: finding, kinds, grouping.
+Run: python3 tests/test_library.py (needs PyGObject with GdkPixbuf and
+b8k-compat, installed or checked out next to this repository)."""
 import os
 import sys
 import tempfile
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, HERE)
+if os.path.isdir(os.path.join(os.path.dirname(HERE), "b8k-compat", "b8k_compat")):
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), "b8k-compat"))
+os.environ["XDG_CACHE_HOME"] = tempfile.mkdtemp()
 import gi  # noqa: E402
 
 gi.require_version("GdkPixbuf", "2.0")
@@ -79,14 +84,6 @@ assert [label for label, _f, _i in folders] == ["Downloads/MAX", "Видео", "
 assert lib.folder_label(home) == "Дом"
 print("groups ok")
 
-t = lib.thumb(lib.items("photo")[0])
-assert t and os.path.exists(t)
-pix = GdkPixbuf.Pixbuf.new_from_file(t)
-assert (pix.get_width(), pix.get_height()) == (library.THUMB, library.THUMB)
-assert lib.thumb(lib.items("photo")[0]) == t  # made once
-assert lib.thumb(lib.items("audio")[0]) is None  # no cover in it
-assert lib.thumb(lib.items("audio")[0]) is None  # and not tried again
-print("thumbs ok")
 
 lib.forget(lib.items("photo")[0])
 assert lib.counts()["photo"] == 1

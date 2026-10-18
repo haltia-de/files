@@ -180,7 +180,6 @@ class Gallery(Gtk.Application):
         def work():
             try:
                 changed = self.lib.scan()
-                self.lib.prune()
             except OSError:
                 changed = False
             GLib.idle_add(self.scanned, changed)
