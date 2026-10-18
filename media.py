@@ -40,6 +40,14 @@ label.section { font-size: 26px; font-weight: bold; color: #2e3436; margin: 12px
 """
 
 
+def video_argv(player, title, path):
+    """The command that plays a video: b8k-vplay, or mpv on a desktop
+    without it (mpv takes its options as --name=value)."""
+    if os.path.basename(player) == "mpv":
+        return [player, "--fs", "--title=" + title, "--", path]
+    return [player, "--title", title, path]
+
+
 def clear(box):
     for child in box.get_children():
         box.remove(child)

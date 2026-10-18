@@ -15,6 +15,7 @@ the start and when the window comes back after a while. The choices are
 kept in ~/.config/b8k/gallery.conf.
 """
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -33,7 +34,8 @@ import media  # noqa: E402
 HOME = os.path.expanduser("~")
 CACHE = os.path.join(GLib.get_user_cache_dir(), "b8k-files")
 SETTINGS = Settings("gallery")  # ~/.config/b8k/gallery.conf, [gallery]
-PLAYER = "/usr/local/bin/b8k-vplay"
+# The video window (Видео's b8k-vplay), wherever it is installed; mpv else.
+PLAYER = shutil.which("b8k-vplay") or shutil.which("mpv") or "/usr/local/bin/b8k-vplay"
 FILTERS = (("all", "Все"), ("photo", "Фото"), ("video", "Видео"), ("audio", "Музыка"))
 VIEWS = (("tiles", "Плитки"), ("list", "Список"), ("months", "По датам"),
          ("folders", "По папкам"))
@@ -279,8 +281,8 @@ class Gallery(Gtk.Application):
         elif item["kind"] == "video":
             self.bar.pause()
             if os.access(PLAYER, os.X_OK):
-                subprocess.Popen([PLAYER, "--title", os.path.basename(item["path"]),
-                                  item["path"]], start_new_session=True,
+                subprocess.Popen(media.video_argv(PLAYER, os.path.basename(item["path"]),
+                                                  item["path"]), start_new_session=True,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             sounds = [i for i in self.shown() if i["kind"] == "audio"]

@@ -1,6 +1,6 @@
 # Maintainer: Mikhail Nevskiy <rensomail@gmail.com>
 pkgname=b8k-files
-pkgver=1.4
+pkgver=1.4.1
 pkgrel=0
 pkgdesc="Files and Gallery: folders, photos, video and music in large type (GTK 3)"
 url="https://github.com/trudenboy/b8k-files"

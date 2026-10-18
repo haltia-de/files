@@ -46,7 +46,8 @@ import media  # noqa: E402
 
 HOME = os.path.expanduser("~")
 TEXT = "/usr/local/bin/b8k-text"
-PLAYER = "/usr/local/bin/b8k-vplay"
+# The video window (Видео's b8k-vplay), wherever it is installed; mpv else.
+PLAYER = shutil.which("b8k-vplay") or shutil.which("mpv") or "/usr/local/bin/b8k-vplay"
 LIST_MAX = 2000
 CACHE = os.path.join(GLib.get_user_cache_dir(), "b8k-files")
 
@@ -350,7 +351,7 @@ class Files(Gtk.Application):
             self.spawn([TEXT, path] if os.access(TEXT, os.X_OK) else ["xdg-open", path])
         elif mime.startswith(("video/", "audio/")) and os.access(PLAYER, os.X_OK):
             self.bar.pause()
-            self.spawn([PLAYER, "--title", os.path.basename(path), path])
+            self.spawn(media.video_argv(PLAYER, os.path.basename(path), path))
         elif mime in ("application/pdf", "text/html"):
             self.spawn(["/usr/local/bin/b8k-launch", "url", "file://" + path])
         else:
