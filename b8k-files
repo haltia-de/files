@@ -25,35 +25,30 @@ import time
 import gi
 from gi.repository import GLib
 
-# The window's Wayland app id is the program name: Галерея's own, so the
-# shell (apps.conf app_ids) tells it from Файлы.
-if "--gallery" in sys.argv[1:]:
-    GLib.set_prgname("b8k-gallery")
+FILES_ID = "io.github.trudenboy.Files"
+GALLERY_ID = "io.github.trudenboy.Gallery"
+# Under Wayland GTK 3 names the window by the program name: the program's
+# id, as its .desktop file is named, so a desktop or the b8k shell finds it.
+GLib.set_prgname(GALLERY_ID if "--gallery" in sys.argv[1:] else FILES_ID)
 
 gi.require_version("Gdk", "3.0")
-gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gdk, GdkPixbuf, Gio, GLib, GObject, Gtk, Pango
+from b8k_compat import dialogs  # noqa: E402
+from b8k_compat.settings import Settings  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402,F811
 
-sys.path.insert(0, "/usr/local/share/b8k/python")
-try:
-    import b8k_ui
-except ImportError:
-    b8k_ui = None
 # library, media and gallery: next to this file in a checkout, else installed.
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE if os.path.exists(os.path.join(HERE, "media.py"))
-                else "/usr/local/lib/b8k-files")
+                else os.path.join(os.path.dirname(HERE), "lib", "b8k-files"))
 import library  # noqa: E402
 import media  # noqa: E402
 
 HOME = os.path.expanduser("~")
 TEXT = "/usr/local/bin/b8k-text"
 PLAYER = "/usr/local/bin/b8k-vplay"
-FUZZEL_INI = "/usr/local/share/b8k/fuzzel-ask.ini"
 LIST_MAX = 2000
 CACHE = os.path.join(GLib.get_user_cache_dir(), "b8k-files")
-CONFIG = os.path.join(GLib.get_user_config_dir(), "b8k", "files.conf")
 
 CSS = b"""
 window, .page { background-color: #e6e6e4; }
@@ -83,24 +78,6 @@ dialog entry { font-size: 26px; min-height: 64px; }
 dialog label { font-size: 24px; }
 dialog button { font-size: 22px; min-height: 60px; padding: 0 24px; }
 """
-
-
-def buzzer():
-    return b8k_ui.Buzz() if b8k_ui else (lambda *_a: True)
-
-
-def menu(title, items):
-    """A list question in the shell's style (fuzzel); the index or None."""
-    try:
-        res = subprocess.run(
-            ["fuzzel", "--config", FUZZEL_INI, "--dmenu", "--index", "--mesg", title,
-             "--cache", "/dev/null", "--select-index", str(len(items))],
-            input="\n".join(items + ["Отмена"]) + "\n",
-            capture_output=True, text=True, timeout=600)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    out = res.stdout.strip()
-    return int(out) if out.isdigit() and int(out) < len(items) else None
 
 
 TEXT_MIMES = ("application/json", "application/x-shellscript", "application/xml",
@@ -171,33 +148,16 @@ def places():
     return out
 
 
-def tiles_chosen():
-    try:
-        with open(CONFIG, encoding="utf-8") as fh:
-            return "tiles = yes" in fh.read()
-    except OSError:
-        return False
-
-
-def choose_tiles(on):
-    try:
-        os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
-        with open(CONFIG + ".new", "w", encoding="utf-8") as fh:
-            fh.write("[files]\ntiles = %s\n" % ("yes" if on else "no"))
-        os.replace(CONFIG + ".new", CONFIG)
-    except OSError:
-        pass
-
-
 class Files(Gtk.Application):
     def __init__(self):
-        super().__init__(application_id="b8k.Files", flags=Gio.ApplicationFlags.HANDLES_OPEN)
+        super().__init__(application_id=FILES_ID, flags=Gio.ApplicationFlags.HANDLES_OPEN)
         self.win = None
         self.path = HOME
         self.hidden = False
         self.clip = None  # ("copy" | "cut", [paths])
         self.viewer = None
-        self.tiles = tiles_chosen()
+        self.settings = Settings("files")
+        self.tiles = self.settings.get_bool("tiles", False)
         self.lib = library.Library(HOME, CACHE)
 
     def do_open(self, files, _n, _hint):
@@ -211,11 +171,8 @@ class Files(Gtk.Application):
         if self.win:
             self.win.present()
             return
-        buzz = buzzer()
-        GObject.type_class_ref(Gtk.Button)
-        GObject.add_emission_hook(Gtk.Button, "pressed", buzz)
         provider = Gtk.CssProvider()
-        provider.load_from_data((b8k_ui.HEADER_CSS if b8k_ui else b"") + CSS + media.CSS)
+        provider.load_from_data(CSS + media.CSS)
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.win = Gtk.ApplicationWindow(application=self, title="Файлы")
@@ -359,7 +316,7 @@ class Files(Gtk.Application):
 
     def toggle_tiles(self):
         self.tiles = not self.tiles
-        choose_tiles(self.tiles)
+        self.settings.set("tiles", self.tiles)
         self.tiles_btn.set_label("Список" if self.tiles else "Плитки")
         self.go(self.path)
 
@@ -435,15 +392,18 @@ class Files(Gtk.Application):
         if not is_dir and is_text(full):
             actions.insert(0, "Редактировать")
 
-        def worker():
-            choice = menu("«%s»" % name, actions)
-            if choice is not None and actions[choice] == "Удалить" and b8k_ui and \
-                    not b8k_ui.ask("Удалить «%s»?" % name, "Удалить"):
-                return
-            if choice is not None:
-                GLib.idle_add(self.act, actions[choice], full)
+        # After the long press has ended: a dialog inside its handler would
+        # keep the gesture from seeing the finger lift.
+        GLib.idle_add(self.hold_menu, name, full, actions)
 
-        threading.Thread(target=worker, daemon=True).start()
+    def hold_menu(self, name, full, actions):
+        choice = dialogs.choose(self.win, "«%s»" % name, actions)
+        if choice is None:
+            return False
+        if actions[choice] == "Удалить" and not dialogs.ask(
+                self.win, "Удалить «%s»?" % name, "Удалить"):
+            return False
+        return self.act(actions[choice], full)
 
     def act(self, action, full):
         name = os.path.basename(full)
@@ -526,28 +486,11 @@ class Files(Gtk.Application):
         self.go(self.path)
 
     def ask_name(self, title, value):
-        dialog = Gtk.Dialog(title=title, transient_for=self.win, modal=True)
-        dialog.add_button("Отмена", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Готово", Gtk.ResponseType.OK)
-        dialog.set_default_response(Gtk.ResponseType.OK)
-        box = dialog.get_content_area()
-        box.set_spacing(12)
-        box.set_border_width(16)
-        box.pack_start(Gtk.Label(label=title), False, False, 0)
-        entry = Gtk.Entry(text=value, activates_default=True)
-        box.pack_start(entry, False, False, 0)
-        dialog.show_all()
-        res = dialog.run()
-        text = entry.get_text().strip().replace("/", "")
-        dialog.destroy()
-        return text if res == Gtk.ResponseType.OK and text not in ("", ".", "..") else None
+        text = (dialogs.text(self.win, title, value) or "").replace("/", "")
+        return text if text not in ("", ".", "..") else None
 
     def toast(self, text):
-        dialog = Gtk.MessageDialog(transient_for=self.win, modal=True,
-                                   message_type=Gtk.MessageType.INFO,
-                                   buttons=Gtk.ButtonsType.OK, text=text)
-        dialog.run()
-        dialog.destroy()
+        dialogs.info(self.win, text)
         return False
 
 
@@ -555,5 +498,5 @@ if __name__ == "__main__":
     if "--gallery" in sys.argv[1:]:
         import gallery
 
-        sys.exit(gallery.Gallery(b8k_ui).run([a for a in sys.argv if a != "--gallery"]))
+        sys.exit(gallery.Gallery().run([a for a in sys.argv if a != "--gallery"]))
     sys.exit(Files().run(sys.argv))

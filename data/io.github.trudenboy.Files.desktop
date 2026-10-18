@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Files
+Name[ru]=Файлы
+Comment=Folders and files in large rows or tiles
+Comment[ru]=Папки и файлы крупными строками или плитками
+Exec=b8k-files %U
+Icon=io.github.trudenboy.Files
+Terminal=false
+Categories=GTK;Utility;Core;FileManager;
+MimeType=inode/directory;
+Keywords=folder;files;manager;папка;файлы;
+StartupNotify=true
+X-B8K-Home=true
+X-B8K-Replaces=files

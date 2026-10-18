@@ -14,7 +14,6 @@ the home folder and the memory cards are searched again in a thread at
 the start and when the window comes back after a while. The choices are
 kept in ~/.config/b8k/gallery.conf.
 """
-import configparser
 import os
 import subprocess
 import threading
@@ -24,16 +23,17 @@ import gi
 
 gi.require_version("Gdk", "3.0")
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gdk, Gio, GLib, GObject, Gtk  # noqa: E402
+from b8k_compat import dialogs  # noqa: E402
+from b8k_compat.settings import Settings  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
 import library  # noqa: E402
 import media  # noqa: E402
 
 HOME = os.path.expanduser("~")
 CACHE = os.path.join(GLib.get_user_cache_dir(), "b8k-files")
-CONFIG = os.path.join(GLib.get_user_config_dir(), "b8k", "gallery.conf")
+SETTINGS = Settings("gallery")  # ~/.config/b8k/gallery.conf, [gallery]
 PLAYER = "/usr/local/bin/b8k-vplay"
-FUZZEL_INI = "/usr/local/share/b8k/fuzzel-ask.ini"
 FILTERS = (("all", "Все"), ("photo", "Фото"), ("video", "Видео"), ("audio", "Музыка"))
 VIEWS = (("tiles", "Плитки"), ("list", "Список"), ("months", "По датам"),
          ("folders", "По папкам"))
@@ -58,47 +58,14 @@ label.note { font-size: 24px; color: #5e5c64; }
 """
 
 
-def menu(title, items, current=None):
-    """A list question in the shell's style (fuzzel); the index or None."""
-    try:
-        res = subprocess.run(
-            ["fuzzel", "--config", FUZZEL_INI, "--dmenu", "--index", "--mesg", title,
-             "--cache", "/dev/null", "--select-index",
-             str(current if current is not None else len(items))],
-            input="\n".join(items + ["Отмена"]) + "\n",
-            capture_output=True, text=True, timeout=600)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    out = res.stdout.strip()
-    return int(out) if out.isdigit() and int(out) < len(items) else None
-
-
 def load_choice(key, default, allowed):
-    conf = configparser.ConfigParser()
-    conf.read(CONFIG, encoding="utf-8")
-    value = conf.get("gallery", key, fallback=default)
+    value = SETTINGS.get(key, default)
     return value if value in allowed else default
 
 
-def save_choice(key, value):
-    conf = configparser.ConfigParser()
-    conf.read(CONFIG, encoding="utf-8")
-    if not conf.has_section("gallery"):
-        conf.add_section("gallery")
-    conf.set("gallery", key, value)
-    try:
-        os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
-        with open(CONFIG + ".new", "w", encoding="utf-8") as fh:
-            conf.write(fh)
-        os.replace(CONFIG + ".new", CONFIG)
-    except OSError:
-        pass
-
-
 class Gallery(Gtk.Application):
-    def __init__(self, b8k_ui=None):
-        super().__init__(application_id="b8k.Gallery")
-        self.ui = b8k_ui
+    def __init__(self):
+        super().__init__(application_id="io.github.trudenboy.Gallery")
         self.win = None
         self.lib = library.Library(HOME, CACHE)
         self.kind = load_choice("filter", "all", dict(FILTERS))
@@ -112,12 +79,8 @@ class Gallery(Gtk.Application):
         if self.win:
             self.win.present()
             return
-        if self.ui:
-            buzz = self.ui.Buzz()
-            GObject.type_class_ref(Gtk.Button)
-            GObject.add_emission_hook(Gtk.Button, "pressed", buzz)
         provider = Gtk.CssProvider()
-        provider.load_from_data((self.ui.HEADER_CSS if self.ui else b"") + CSS + media.CSS)
+        provider.load_from_data(CSS + media.CSS)
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.win = Gtk.ApplicationWindow(application=self, title="Галерея")
@@ -258,7 +221,7 @@ class Gallery(Gtk.Application):
 
     def set_kind(self, kind):
         self.kind = kind
-        save_choice("filter", kind)
+        SETTINGS.set("filter", kind)
         self.folder = None
         self.fill()
 
@@ -268,16 +231,13 @@ class Gallery(Gtk.Application):
         labels = [label for _k, label in VIEWS]
         current = [k for k, _l in VIEWS].index(self.view)
 
-        def work():
-            choice = menu("Как показывать", labels, current)
-            if choice is not None:
-                GLib.idle_add(self.set_view, VIEWS[choice][0])
-
-        threading.Thread(target=work, daemon=True).start()
+        choice = dialogs.choose(self.win, "Как показывать", labels, current)
+        if choice is not None:
+            self.set_view(VIEWS[choice][0])
 
     def set_view(self, view):
         self.view = view
-        save_choice("view", view)
+        SETTINGS.set("view", view)
         self.folder = None
         self.fill()
         return False
@@ -333,15 +293,18 @@ class Gallery(Gtk.Application):
         name = os.path.basename(item["path"])
         actions = ["Сведения", "Удалить"]
 
-        def work():
-            choice = menu("«%s»" % name, actions)
-            if choice == 1 and not (self.ui and self.ui.ask("Удалить «%s»?" % name,
-                                                              "Удалить")):
-                return
-            if choice is not None:
-                GLib.idle_add(self.act, actions[choice], item)
+        # After the long press has ended: a dialog inside its handler would
+        # keep the gesture from seeing the finger lift.
+        GLib.idle_add(self.hold_menu, name, item, actions)
 
-        threading.Thread(target=work, daemon=True).start()
+    def hold_menu(self, name, item, actions):
+        choice = dialogs.choose(self.win, "«%s»" % name, actions)
+        if choice is None:
+            return False
+        if actions[choice] == "Удалить" and not dialogs.ask(
+                self.win, "Удалить «%s»?" % name, "Удалить"):
+            return False
+        return self.act(actions[choice], item)
 
     def act(self, action, item):
         if action == "Сведения":
@@ -391,9 +354,5 @@ class Gallery(Gtk.Application):
             self.stack.set_visible_child_name("viewer")
 
     def toast(self, text):
-        dialog = Gtk.MessageDialog(transient_for=self.win, modal=True,
-                                   message_type=Gtk.MessageType.INFO,
-                                   buttons=Gtk.ButtonsType.OK, text=text)
-        dialog.run()
-        dialog.destroy()
+        dialogs.info(self.win, text)
         return False
