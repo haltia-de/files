@@ -62,6 +62,9 @@ label.note { font-size: 24px; color: #5e5c64; }
 """
 
 
+# Inside the Haltia shell (its session sets XDG_CURRENT_DESKTOP=Haltia:GNOME).
+ON_HALTIA = "Haltia" in os.environ.get("XDG_CURRENT_DESKTOP", "").split(":")
+
 def load_choice(key, default, allowed):
     value = SETTINGS.get(key, default)
     return value if value in allowed else default
@@ -92,6 +95,9 @@ class Gallery(Gtk.Application):
         self.win.connect("focus-in-event", lambda *_a: self.maybe_rescan())
         self.win.connect("destroy", lambda *_a: self.bar.quit())
         self.header = Gtk.HeaderBar(title="Галерея")
+        # The Haltia shell closes windows with its own button; any other desktop
+        # gets the usual window buttons in the header.
+        self.header.set_show_close_button(not ON_HALTIA)
         self.back_btn = Gtk.Button(label="←")
         self.back_btn.get_style_context().add_class("back")
         self.back_btn.connect("clicked", lambda *_a: self.back())

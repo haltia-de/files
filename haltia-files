@@ -90,6 +90,9 @@ TEXT_MIMES = ("application/json", "application/x-shellscript", "application/xml"
               "application/x-yaml")
 
 
+# Inside the Haltia shell (its session sets XDG_CURRENT_DESKTOP=Haltia:GNOME).
+ON_HALTIA = "Haltia" in os.environ.get("XDG_CURRENT_DESKTOP", "").split(":")
+
 def is_text(path):
     ctype = Gio.content_type_guess(path, None)[0] or ""
     mime = Gio.content_type_get_mime_type(ctype) or ""
@@ -184,6 +187,9 @@ class Files(Gtk.Application):
         self.win = Gtk.ApplicationWindow(application=self, title="Файлы")
         self.win.set_default_size(1160, 800)
         self.header = Gtk.HeaderBar(title="Файлы")
+        # The Haltia shell closes windows with its own button; any other desktop
+        # gets the usual window buttons in the header.
+        self.header.set_show_close_button(not ON_HALTIA)
         self.up_btn = Gtk.Button(label="←")
         self.up_btn.get_style_context().add_class("back")
         self.up_btn.connect("clicked", lambda *_a: self.up())
