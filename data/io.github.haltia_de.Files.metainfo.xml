@@ -17,9 +17,35 @@
   <content_rating type="oars-1.1"/>
   <requires><control>touch</control></requires>
   <releases>
-    <release version="2.0.1" date="2026-10-19"/>
-    <release version="2.0.0" date="2026-10-19"/>
-    <release version="1.4.2" date="2026-10-18"/>
-    <release version="1.4.1" date="2026-10-18"/>
+    <release version="2.0.2" date="2026-10-19">
+      <description>
+        <p>Each version now says what changed; it shows in Settings → Updates.</p>
+        <p xml:lang="ru">У каждой версии теперь есть описание: его видно в «Настройки → Обновления».</p>
+      </description>
+    </release>
+    <release version="2.0.1" date="2026-10-19">
+      <description>
+        <p>A new icon in Haltia's common style.</p>
+        <p xml:lang="ru">Новая иконка в общем стиле Haltia.</p>
+      </description>
+    </release>
+    <release version="2.0.0" date="2026-10-19">
+      <description>
+        <p>Part of Haltia: a new name; its settings and the gallery's cache moved by themselves.</p>
+        <p xml:lang="ru">Программа стала частью Haltia: новое имя, настройки и кэш галереи переехали сами.</p>
+      </description>
+    </release>
+    <release version="1.4.2" date="2026-10-18">
+      <description>
+        <p>Releases come as signed Alpine packages.</p>
+        <p xml:lang="ru">Выпуски приходят подписанными пакетами.</p>
+      </description>
+    </release>
+    <release version="1.4.1" date="2026-10-18">
+      <description>
+        <p>Videos open in Видео's player wherever it is installed.</p>
+        <p xml:lang="ru">Видео открываются в плеере программы «Видео», где бы он ни был установлен.</p>
+      </description>
+    </release>
   </releases>
 </component>
