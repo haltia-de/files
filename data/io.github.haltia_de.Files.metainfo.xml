@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.haltia_de.Files</id>
+  <replaces><id>io.github.trudenboy.Files</id></replaces>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-2.0-only</project_license>
+  <name>Files</name>
+  <name xml:lang="ru">Файлы</name>
+  <summary>Folders and files in rows or tiles</summary>
+  <description>
+    <p xml:lang="ru">Папки и файлы строками или плитками, фото, видео и обложки — миниатюрами.</p>
+    <p>Calm, touch-first and simple, part of the Haltia desktop; at home on any GTK desktop.</p>
+  </description>
+  <launchable type="desktop-id">io.github.haltia_de.Files.desktop</launchable>
+  <url type="homepage">https://github.com/haltia-de/files</url>
+  <developer id="io.github.haltia_de"><name>Mikhail Nevskiy</name></developer>
+  <content_rating type="oars-1.1"/>
+  <requires><control>touch</control></requires>
+  <releases>
+    <release version="2.0.0" date="2026-10-19"/>
+    <release version="1.4.2" date="2026-10-18"/>
+    <release version="1.4.1" date="2026-10-18"/>
+  </releases>
+</component>

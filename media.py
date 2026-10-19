@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0
-"""What Файлы and Галерея share for media on top of b8k-compat: tiles and
+"""What Файлы and Галерея share for media on top of haltia-kit: tiles and
 rows with small pictures, a grid that is built as one scrolls (Grid), the
 photo viewer for items (Viewer) and the sound bar at the bottom (SoundBar).
-Small pictures, the viewer itself and sound are b8k_compat's (photos.Thumbs,
+Small pictures, the viewer itself and sound are haltia_kit's (photos.Thumbs,
 photos.Viewer, sound.Player).
 """
 import os
@@ -11,7 +11,7 @@ import gi
 
 gi.require_version("Gdk", "3.0")
 gi.require_version("Gtk", "3.0")
-from b8k_compat import photos, sound  # noqa: E402
+from haltia_kit import photos, sound  # noqa: E402
 from gi.repository import GLib, Gtk, Pango  # noqa: E402
 
 import library  # noqa: E402
@@ -41,7 +41,7 @@ label.section { font-size: 26px; font-weight: bold; color: #2e3436; margin: 12px
 
 
 def video_argv(player, title, path):
-    """The command that plays a video: b8k-vplay, or mpv on a desktop
+    """The command that plays a video: haltia-vplay, or mpv on a desktop
     without it (mpv takes its options as --name=value)."""
     if os.path.basename(player) == "mpv":
         return [player, "--fs", "--title=" + title, "--", path]
@@ -55,7 +55,7 @@ def clear(box):
 
 
 def Thumbs(_lib=None):
-    """Small pictures (b8k_compat.photos.Thumbs): want(path, image, size)."""
+    """Small pictures (haltia_kit.photos.Thumbs): want(path, image, size)."""
     return photos.Thumbs()
 
 
@@ -236,7 +236,7 @@ class Grid:
 
 
 class Viewer(photos.Viewer):
-    """b8k_compat's photo viewer for items: show(items, i), drop(item);
+    """haltia_kit's photo viewer for items: show(items, i), drop(item);
     held(item) on a long press."""
 
     def __init__(self, titled, held):
@@ -252,7 +252,7 @@ class Viewer(photos.Viewer):
 
 
 class SoundBar(Gtk.Box):
-    """Sound files played one after another (b8k_compat.sound.Player, which
+    """Sound files played one after another (haltia_kit.sound.Player, which
     keeps the machine awake while it plays), with the bar at the bottom:
     the title, back, pause, on, stop and a time bar to seek. play(items, i)."""
 

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0
 """The media library: finding, kinds, grouping.
 Run: python3 tests/test_library.py (needs PyGObject with GdkPixbuf and
-b8k-compat, installed or checked out next to this repository)."""
+haltia-kit, installed or checked out next to this repository as kit/)."""
 import os
 import sys
 import tempfile
@@ -10,8 +10,10 @@ import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
-if os.path.isdir(os.path.join(os.path.dirname(HERE), "b8k-compat", "b8k_compat")):
-    sys.path.insert(0, os.path.join(os.path.dirname(HERE), "b8k-compat"))
+for _kit in ("kit", "b8k-compat"):
+    if os.path.isdir(os.path.join(os.path.dirname(HERE), _kit, "haltia_kit")):
+        sys.path.insert(0, os.path.join(os.path.dirname(HERE), _kit))
+        break
 os.environ["XDG_CACHE_HOME"] = tempfile.mkdtemp()
 import gi  # noqa: E402
 

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
-"""The media library of Галерея (b8k-files --gallery): every photo, video
+"""The media library of Галерея (haltia-files --gallery): every photo, video
 and sound file kept on the tablet, and how it is grouped. Files are read
-(lengths, tags) through b8k-compat, in its memory-capped reader process.
+(lengths, tags) through haltia-kit, in its memory-capped reader process.
 
 Library(home, cache) is the one interface the window uses:
 
@@ -19,14 +19,14 @@ Library(home, cache) is the one interface the window uses:
 An item is a dict: path, kind, size, mtime, and for video and sound
 duration (seconds or None), for sound title and artist when tagged. Hidden
 folders (.cache, .local, ...) are not searched. Small pictures are
-b8k-compat's freedesktop thumbnails (b8k_compat.photos).
+haltia-kit's freedesktop thumbnails (haltia_kit.photos).
 """
 import json
 import os
 import threading
 
-from b8k_compat.formats import month, nice_date, nice_duration, nice_size, plural  # noqa: F401
-from b8k_compat.photos import kind_of, media_info
+from haltia_kit.formats import month, nice_date, nice_duration, nice_size, plural  # noqa: F401
+from haltia_kit.photos import kind_of, media_info
 
 KINDS = ("photo", "video", "audio")
 LIMIT = 30000  # files at most, so a huge card cannot eat the memory

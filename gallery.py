@@ -1,18 +1,18 @@
 # SPDX-License-Identifier: GPL-2.0
-"""Галерея (b8k-files --gallery): every photo, video and sound file on the
+"""Галерея (haltia-files --gallery): every photo, video and sound file on the
 tablet in one place, whatever folder it was saved into.
 
 The row under the header picks Все, Фото, Видео or Музыка; the button in
 the header picks how they are shown: Плитки (newest first), Список, По
 датам (by month) or По папкам (a folder a row; a tap shows its files, ←
-goes back). A photo opens in the viewer, a video in b8k-vplay, a sound
+goes back). A photo opens in the viewer, a video in haltia-vplay, a sound
 plays in the bar at the bottom while one goes on looking. A long press
 offers Сведения and Удалить (to the trash, after a question).
 
-What was found last time shows at once (~/.cache/b8k-files/index.json);
+What was found last time shows at once (~/.cache/haltia-files/index.json);
 the home folder and the memory cards are searched again in a thread at
 the start and when the window comes back after a while. The choices are
-kept in ~/.config/b8k/gallery.conf.
+kept in ~/.config/haltia/gallery.conf.
 """
 import os
 import shutil
@@ -24,18 +24,20 @@ import gi
 
 gi.require_version("Gdk", "3.0")
 gi.require_version("Gtk", "3.0")
-from b8k_compat import dialogs  # noqa: E402
-from b8k_compat.settings import Settings  # noqa: E402
+from haltia_kit import dialogs  # noqa: E402
+from haltia_kit.settings import Settings  # noqa: E402
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
 import library  # noqa: E402
 import media  # noqa: E402
 
 HOME = os.path.expanduser("~")
-CACHE = os.path.join(GLib.get_user_cache_dir(), "b8k-files")
-SETTINGS = Settings("gallery")  # ~/.config/b8k/gallery.conf, [gallery]
-# The video window (Видео's b8k-vplay), wherever it is installed; mpv else.
-PLAYER = shutil.which("b8k-vplay") or shutil.which("mpv") or "/usr/local/bin/b8k-vplay"
+CACHE = os.path.join(GLib.get_user_cache_dir(), "haltia-files")
+SETTINGS = Settings("gallery")  # ~/.config/haltia/gallery.conf, [gallery]
+# The video window (Видео's haltia-vplay, b8k-vplay before 2.0), wherever it
+# is installed; mpv else.
+PLAYER = (shutil.which("haltia-vplay") or shutil.which("b8k-vplay") or shutil.which("mpv")
+          or "/usr/bin/haltia-vplay")
 FILTERS = (("all", "Все"), ("photo", "Фото"), ("video", "Видео"), ("audio", "Музыка"))
 VIEWS = (("tiles", "Плитки"), ("list", "Список"), ("months", "По датам"),
          ("folders", "По папкам"))
@@ -67,7 +69,7 @@ def load_choice(key, default, allowed):
 
 class Gallery(Gtk.Application):
     def __init__(self):
-        super().__init__(application_id="io.github.trudenboy.Gallery")
+        super().__init__(application_id="io.github.haltia_de.Gallery")
         self.win = None
         self.lib = library.Library(HOME, CACHE)
         self.kind = load_choice("filter", "all", dict(FILTERS))

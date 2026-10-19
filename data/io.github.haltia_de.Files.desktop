@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Name=Files
+Name[ru]=Файлы
+Comment=Folders and files in rows or tiles
+Comment[ru]=Папки и файлы строками или плитками
+Exec=haltia-files %U
+Icon=io.github.haltia_de.Files
+Terminal=false
+Categories=GTK;Utility;Core;FileManager;
+MimeType=inode/directory;
+Keywords=folder;files;manager;папка;файлы;
+StartupNotify=true
+X-B8K-Home=true
+X-B8K-Replaces=files
+X-Haltia-Home=true
+X-Haltia-Replaces=files
+X-Flatpak-RenamedFrom=io.github.trudenboy.Files.desktop;

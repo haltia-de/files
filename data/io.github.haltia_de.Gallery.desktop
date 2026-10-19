@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Name=Gallery
+Name[ru]=Галерея
+Comment=Every photo, video and sound file in one place
+Comment[ru]=Все фото, видео и музыка в одном месте
+Exec=haltia-files --gallery
+Icon=io.github.haltia_de.Gallery
+Terminal=false
+Categories=GTK;Graphics;Photography;AudioVideo;Viewer;
+Keywords=photo;video;music;gallery;фото;видео;музыка;галерея;
+StartupNotify=true
+X-B8K-Home=true
+X-B8K-Replaces=gallery
+X-Haltia-Home=true
+X-Haltia-Replaces=gallery
+X-Flatpak-RenamedFrom=io.github.trudenboy.Gallery.desktop;

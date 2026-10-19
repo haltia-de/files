@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0
-"""Файлы: folders and files in large rows or tiles; with --gallery, Галерея
+"""Файлы: folders and files in rows or tiles; with --gallery, Галерея
 (gallery.py): every photo, video and sound file on the tablet in one place.
 
 The row of places under the header (Дом, Документы, Загрузки, Изображения,
@@ -8,8 +8,8 @@ The row of places under the header (Дом, Документы, Загрузки
 goes up a folder; «Плитки»/«Список» switches how a folder shows, photos,
 videos and sound covers as small pictures either way. A tap on a folder
 opens it, a tap on a file opens it in the program for it: text in Блокнот
-(b8k-text), photos here (the viewer goes through the folder's photos),
-video in b8k-vplay, sound in the bar at the bottom (the folder's sound
+(haltia-text), photos here (the viewer goes through the folder's photos),
+video in haltia-vplay, sound in the bar at the bottom (the folder's sound
 files one after another), PDF and web pages in Firefox, anything else
 with the system's default. A long press offers Редактировать (a text file, in
 Блокнот), Копировать, Вырезать, Переименовать and Удалить (to the trash); «Вставить» puts what was copied or cut into
@@ -25,31 +25,36 @@ import time
 import gi
 from gi.repository import GLib
 
-FILES_ID = "io.github.trudenboy.Files"
-GALLERY_ID = "io.github.trudenboy.Gallery"
+FILES_ID = "io.github.haltia_de.Files"
+GALLERY_ID = "io.github.haltia_de.Gallery"
 # Under Wayland GTK 3 names the window by the program name: the program's
-# id, as its .desktop file is named, so a desktop or the b8k shell finds it.
+# id, as its .desktop file is named, so a desktop or the Haltia shell finds it.
 GLib.set_prgname(GALLERY_ID if "--gallery" in sys.argv[1:] else FILES_ID)
 
 gi.require_version("Gdk", "3.0")
 gi.require_version("Gtk", "3.0")
-from b8k_compat import dialogs  # noqa: E402
-from b8k_compat.settings import Settings  # noqa: E402
+from haltia_kit import dialogs  # noqa: E402
+from haltia_kit import paths  # noqa: E402
+from haltia_kit.settings import Settings  # noqa: E402
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402,F811
 
 # library, media and gallery: next to this file in a checkout, else installed.
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE if os.path.exists(os.path.join(HERE, "media.py"))
-                else os.path.join(os.path.dirname(HERE), "lib", "b8k-files"))
+                else os.path.join(os.path.dirname(HERE), "lib", "haltia-files"))
 import library  # noqa: E402
 import media  # noqa: E402
 
 HOME = os.path.expanduser("~")
-TEXT = "/usr/local/bin/b8k-text"
-# The video window (Видео's b8k-vplay), wherever it is installed; mpv else.
-PLAYER = shutil.which("b8k-vplay") or shutil.which("mpv") or "/usr/local/bin/b8k-vplay"
+TEXT = shutil.which("haltia-text") or shutil.which("b8k-text") or "/usr/bin/haltia-text"
+# The video window (Видео's haltia-vplay, b8k-vplay before 2.0), wherever it
+# is installed; mpv else.
+PLAYER = (shutil.which("haltia-vplay") or shutil.which("b8k-vplay") or shutil.which("mpv")
+          or "/usr/bin/haltia-vplay")
 LIST_MAX = 2000
-CACHE = os.path.join(GLib.get_user_cache_dir(), "b8k-files")
+# Until 3.0: the cache from before the rename moves (ADR 0004).
+paths.migrate_dirs("b8k-files", "haltia-files")
+CACHE = os.path.join(GLib.get_user_cache_dir(), "haltia-files")
 
 CSS = b"""
 window, .page { background-color: #e6e6e4; }
@@ -353,7 +358,8 @@ class Files(Gtk.Application):
             self.bar.pause()
             self.spawn(media.video_argv(PLAYER, os.path.basename(path), path))
         elif mime in ("application/pdf", "text/html"):
-            self.spawn(["/usr/local/bin/b8k-launch", "url", "file://" + path])
+            self.spawn([shutil.which("haltia-launch") or shutil.which("b8k-launch") or "b8k-launch",
+                        "url", "file://" + path])
         else:
             try:
                 Gio.AppInfo.launch_default_for_uri("file://" + path, None)
