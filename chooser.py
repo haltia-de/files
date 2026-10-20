@@ -141,8 +141,9 @@ class Chooser(Gtk.Window):
         # A folder the program named counts only inside the places (unless
         # the helper allowed everything): one tap must not save into
         # ~/.config for a program in a sandbox.
-        if request.folder and not self.everything and not choosing.allowed(request.folder):
-            request.folder = None
+        if request.folder and not self.everything:
+            request.folder = (os.path.realpath(request.folder)
+                              if choosing.allowed(request.folder) else None)
         self.marked = {}  # path -> item, for several files
         self.place = None  # the place the folder shown belongs to
         self.path = None  # the folder shown; None for Недавние
@@ -497,12 +498,20 @@ class Chooser(Gtk.Window):
             return
         self.finished = True
         req = self.request
-        if req.mode != "save":
-            folder = paths[0] if req.mode == "folder" else os.path.dirname(paths[0])
-            self.settings.set("last." + _app_key(req.app), folder)
         # The real place of each file: what the program gets is what was shown.
         paths = [os.path.join(os.path.realpath(os.path.dirname(p)), os.path.basename(p))
                  if req.mode == "save" else os.path.realpath(p) for p in paths]
+        # Checked again as resolved now: a folder swapped for a link since
+        # it was shown must not lead out of the places.
+        if not self.everything and not all(
+                choosing.allowed(p if req.mode == "folder" else os.path.dirname(p))
+                for p in paths):
+            self.finished = False
+            dialogs.info(self, "Этот файл или папку выбрать нельзя.")
+            return
+        if req.mode != "save":
+            folder = paths[0] if req.mode == "folder" else os.path.dirname(paths[0])
+            self.settings.set("last." + _app_key(req.app), folder)
         results = {"uris": [Gio.File.new_for_path(p).get_uri() for p in paths]}
         if req.filters:
             results["current_filter"] = req.current_filter()
