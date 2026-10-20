@@ -14,6 +14,9 @@ files one after another), PDF and web pages in Firefox, anything else
 with the system's default. A long press offers Редактировать (a text file, in
 Блокнот), Копировать, Вырезать, Переименовать and Удалить (to the trash); «Вставить» puts what was copied or cut into
 the folder shown. Hidden files stay hidden until «Скрытые» shows them.
+
+With --portal it is the file chooser other programs get (portal.py,
+chooser.py): an xdg-desktop-portal backend, started by D-Bus.
 """
 import os
 import shutil
@@ -29,7 +32,10 @@ FILES_ID = "io.github.haltia_de.Files"
 GALLERY_ID = "io.github.haltia_de.Gallery"
 # Under Wayland GTK 3 names the window by the program name: the program's
 # id, as its .desktop file is named, so a desktop or the Haltia shell finds it.
-GLib.set_prgname(GALLERY_ID if "--gallery" in sys.argv[1:] else FILES_ID)
+# The file chooser (--portal) has an id of its own: it is no program on the
+# panel, and the shell's «✕» on it means Отмена.
+GLib.set_prgname(GALLERY_ID if "--gallery" in sys.argv[1:] else
+                 "io.github.haltia_de.FileChooser" if "--portal" in sys.argv[1:] else FILES_ID)
 
 gi.require_version("Gdk", "3.0")
 gi.require_version("Gtk", "3.0")
@@ -508,6 +514,10 @@ class Files(Gtk.Application):
 
 
 if __name__ == "__main__":
+    if "--portal" in sys.argv[1:]:
+        import portal
+
+        sys.exit(portal.main())
     if "--gallery" in sys.argv[1:]:
         import gallery
 

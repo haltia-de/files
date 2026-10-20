@@ -1,5 +1,19 @@
 # Что нового · What's new
 
+## 2.1.0 (2026-10-20)
+
+### Русский
+
+- Простое окно выбора файлов для всех программ: крупные папки, «Недавние», фото картинками, даты словами
+- Сохранение одной кнопкой: имя и папка подбираются сами, существующий файл не перезаписывается
+- Работает через стандартный портал xdg-desktop-portal, а без него — через оболочку Haltia
+
+### English
+
+- A simple file chooser for every program: large folders, Recent, photos as pictures, dates in words
+- Saving with one button: the name and the folder are picked for you, and no file is written over
+- Works through the standard xdg-desktop-portal, and without it through the Haltia shell
+
 ## 2.0.3 (2026-10-19)
 
 ### Русский

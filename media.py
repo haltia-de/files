@@ -104,6 +104,8 @@ def tile(item, thumbs, size=TILE):
                           halign=Gtk.Align.END, valign=Gtk.Align.END, margin=8)
         badge.get_style_context().add_class("badge")
         over.add_overlay(badge)
+    if "marked" in item:
+        over.add_overlay(check(item, Gtk.Align.END, Gtk.Align.START))
     box.pack_start(over, False, False, 0)
     if item["kind"] != "photo" or item.get("label"):
         cap = Gtk.Label(label=item.get("label") or caption(item), max_width_chars=1)
@@ -137,16 +139,31 @@ def row_box(item, thumbs, sub=None):
     small.get_style_context().add_class("sub")
     text.pack_start(small, False, False, 0)
     box.pack_start(text, True, True, 0)
+    if "marked" in item:
+        box.pack_end(check(item, Gtk.Align.CENTER, Gtk.Align.CENTER), False, False, 0)
     return box
+
+
+def check(item, halign, valign):
+    """The mark of a file chosen among several (the file chooser's): shown
+    while item["marked"], kept as item["check"] to show or hide later."""
+    mark = Gtk.Label(label="✓", halign=halign, valign=valign, margin=8)
+    mark.get_style_context().add_class("check")
+    mark.set_no_show_all(True)
+    mark.set_visible(bool(item["marked"]))
+    item["check"] = mark
+    return mark
 
 
 class Grid:
     """Groups of items as tiles or rows in a scrolled box, built CHUNK at a
     time as one nears the end. show(groups, rows) takes [(label or None,
-    items)]; a tap calls opened(item), a long press held(item)."""
+    items)]; a tap calls opened(item), a long press held(item). Tiles come
+    per_line to a line (five beside the panel, fewer beside more)."""
 
-    def __init__(self, thumbs, opened, held):
+    def __init__(self, thumbs, opened, held, per_line=5):
         self.thumbs, self.opened, self.held_cb = thumbs, opened, held
+        self.per_line = per_line
         self.scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.scroll.add(self.box)
@@ -193,7 +210,8 @@ class Grid:
                 getattr(p.get_row_at_y(int(y)), "item", None)))
         else:
             part = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
-                               min_children_per_line=5, max_children_per_line=5,
+                               min_children_per_line=self.per_line,
+                               max_children_per_line=self.per_line,
                                column_spacing=8, row_spacing=8,
                                valign=Gtk.Align.START)
             part.set_activate_on_single_click(True)

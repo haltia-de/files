@@ -17,6 +17,20 @@
   <content_rating type="oars-1.1"/>
   <requires><control>touch</control></requires>
   <releases>
+    <release version="2.1.0" date="2026-10-20">
+      <description>
+        <ul>
+          <li>A simple file chooser for every program: large folders, Recent, photos as pictures, dates in words</li>
+          <li>Saving with one button: the name and the folder are picked for you, and no file is written over</li>
+          <li>Works through the standard xdg-desktop-portal, and without it through the Haltia shell</li>
+        </ul>
+        <ul>
+          <li xml:lang="ru">Простое окно выбора файлов для всех программ: крупные папки, «Недавние», фото картинками, даты словами</li>
+          <li xml:lang="ru">Сохранение одной кнопкой: имя и папка подбираются сами, существующий файл не перезаписывается</li>
+          <li xml:lang="ru">Работает через стандартный портал xdg-desktop-portal, а без него — через оболочку Haltia</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.3" date="2026-10-19">
       <description>
         <p>Outside the Haltia shell the window has the desktop's usual buttons, close among them.</p>

@@ -18,7 +18,7 @@ share=$root$prefix/share
 install -D -m 755 "$here/haltia-files" "$root$prefix/bin/haltia-files"
 ln -sfn haltia-files "$root$prefix/bin/b8k-files"
 rm -rf "$lib" "$root$prefix/lib/b8k-files"
-for f in library media gallery; do
+for f in library media gallery choosing chooser portal; do
 	install -D -m 644 "$here/$f.py" "$lib/$f.py"
 done
 for name in Files Gallery; do
@@ -30,6 +30,12 @@ for name in Files Gallery; do
 	install -D -m 644 "$here/data/$id.metainfo.xml" "$share/metainfo/$id.metainfo.xml"
 	rm -f "$share/icons/hicolor/scalable/apps/$old.svg" "$share/metainfo/$old.metainfo.xml"
 done
+# The file chooser for every program: an xdg-desktop-portal backend
+# (portals/haltia.portal), started by D-Bus as haltia-files --portal.
+install -D -m 644 "$here/data/haltia.portal" "$share/xdg-desktop-portal/portals/haltia.portal"
+mkdir -p "$share/dbus-1/services"
+printf '[D-BUS Service]\nName=org.freedesktop.impl.portal.desktop.haltia\nExec=%s/bin/haltia-files --portal\n' \
+	"$prefix" >"$share/dbus-1/services/org.freedesktop.impl.portal.desktop.haltia.service"
 # The shell's old entries for these programs, from before the .desktop files.
 rm -f "$root/usr/local/share/b8k/apps.d/files.conf" "$root/usr/local/share/b8k/apps.d/gallery.conf" \
 	"$root/usr/local/share/b8k/files.svg" "$root/usr/local/share/b8k/gallery.svg"
