@@ -74,6 +74,23 @@ def places(everything=False, home=HOME, user=None):
     return out
 
 
+def allowed(path, home=HOME, user=None):
+    """Whether a folder a program named lies inside one of the places, with
+    no hidden folder on the way: a program in a sandbox must not get a file
+    in ~/.config (autostart, ...) for one tap on «Сохранить»."""
+    if not path:
+        return False
+    real = os.path.realpath(path)
+    for _label, root in places(False, home, user):
+        root = os.path.realpath(root)
+        if real == root:
+            return True
+        if real.startswith(root.rstrip("/") + "/"):
+            rel = real[len(root.rstrip("/")) + 1:]
+            return not any(part.startswith(".") for part in rel.split("/"))
+    return False
+
+
 def card_label(name):
     low = name.lower()
     if "sd" in low or "mmc" in low or "card" in low:
@@ -210,14 +227,16 @@ def objects(n):
 
 def listing(folder, filt=None, folders_only=False, hidden=False):
     """[(is_dir, name, path, mtime)] of a folder: folders first by name,
-    then the files that pass the filter, newest first."""
+    then the files that pass the filter, newest first. Symbolic links show
+    only with hidden (the helper's switch): a harmless name could point at
+    a key or a setting elsewhere."""
     dirs, files = [], []
     try:
         entries = list(os.scandir(folder))
     except OSError:
         return None
     for e in entries:
-        if not hidden and e.name.startswith("."):
+        if not hidden and (e.name.startswith(".") or e.is_symlink()):
             continue
         try:
             is_dir = e.is_dir()
@@ -235,7 +254,8 @@ def listing(folder, filt=None, folders_only=False, hidden=False):
 
 def recent(roots, filt=None, now=None, days=RECENT_DAYS, limit=RECENT_MAX, depth=RECENT_DEPTH):
     """The newest files under the user's folders that pass the filter, from
-    the last days, newest first: what one has just downloaded or saved."""
+    the last days, newest first: what one has just downloaded or saved.
+    Symbolic links are left out."""
     since = (now if now is not None else time.time()) - days * 86400
     found, seen = [], set()
     stack = [(r, 0) for r in roots if r]
@@ -250,7 +270,7 @@ def recent(roots, filt=None, now=None, days=RECENT_DAYS, limit=RECENT_MAX, depth
         except OSError:
             continue
         for e in entries:
-            if e.name.startswith("."):
+            if e.name.startswith(".") or e.is_symlink():
                 continue
             try:
                 if e.is_dir(follow_symlinks=False):

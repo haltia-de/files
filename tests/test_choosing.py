@@ -111,6 +111,24 @@ assert full[0] == "Дом" and full[-1] == "Система"
 assert choosing.card_label("mmcblk1p1") == "Карта памяти"
 assert choosing.card_label("KINGSTON") == "Флешка"
 
+# A program's folder counts only inside the places, no hidden folder on the way.
+assert choosing.allowed(dl, home)
+assert choosing.allowed(os.path.join(dl, "MAX"), home)
+os.makedirs(os.path.join(home, ".config", "autostart"))
+assert not choosing.allowed(os.path.join(home, ".config", "autostart"), home)
+os.makedirs(os.path.join(dl, ".тайник"))
+assert not choosing.allowed(os.path.join(dl, ".тайник"), home)
+assert not choosing.allowed("/etc", home)
+os.symlink(os.path.join(home, ".config"), os.path.join(dl, "ссылка"))
+assert not choosing.allowed(os.path.join(dl, "ссылка", "autostart"), home)
+
+# Symbolic links are not offered: a harmless name may point at a key.
+os.symlink(os.path.join(home, ".config", "autostart"), os.path.join(pics, "кошка.jpg"))
+assert "кошка.jpg" not in [e[1] for e in choosing.listing(pics, photos)]
+assert "кошка.jpg" not in [e[1] for e in choosing.recent([pics], photos, now)]
+assert "ссылка" not in [e[1] for e in choosing.listing(dl)]
+assert "кошка.jpg" in [e[1] for e in choosing.listing(pics, None, hidden=True)]
+
 # Dates in words.
 noon = time.mktime((2026, 10, 20, 12, 0, 0, 0, 0, -1))
 assert choosing.when(noon - 3600 * 2, noon) == "сегодня, 10:00"
