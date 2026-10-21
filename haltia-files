@@ -18,11 +18,14 @@ the folder shown. Hidden files stay hidden until «Скрытые» shows them.
 With --portal it is the file chooser other programs get (portal.py,
 chooser.py): an xdg-desktop-portal backend, started by D-Bus.
 """
+import ctypes
+import errno
 import os
 import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -149,6 +152,49 @@ def read_folder(path, hidden):
                         st, is_dir))
     entries.sort()
     return [e[2:] for e in entries[:LIST_MAX]]
+
+
+def rename_noreplace(src, target):
+    """Publish a name atomically without replacing even a dangling symlink."""
+    if os.path.lexists(target):
+        raise FileExistsError(errno.EEXIST, "Файл с таким именем уже существует", target)
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is None:
+        raise OSError(errno.ENOTSUP, "Безопасное переименование не поддерживается", target)
+    renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
+                          ctypes.c_char_p, ctypes.c_uint]
+    renameat2.restype = ctypes.c_int
+    # AT_FDCWD = -100; RENAME_NOREPLACE = 1 (Linux).
+    if renameat2(-100, os.fsencode(src), -100, os.fsencode(target), 1):
+        code = ctypes.get_errno()
+        message = ("Файл с таким именем уже существует" if code == errno.EEXIST
+                   else os.strerror(code))
+        raise OSError(code, message, target)
+
+
+def paste_file(src, target, cut=False):
+    """Keep incomplete copies under a temporary name on the destination disk."""
+    if cut:
+        try:
+            rename_noreplace(src, target)
+            return
+        except OSError as exc:
+            if exc.errno != errno.EXDEV:
+                raise
+    with tempfile.TemporaryDirectory(prefix=".haltia-copy-",
+                                     dir=os.path.dirname(target)) as stage:
+        pending = os.path.join(stage, "content")
+        if os.path.isdir(src):
+            shutil.copytree(src, pending, symlinks=True)
+        else:
+            shutil.copy2(src, pending)
+        rename_noreplace(pending, target)
+    if cut:
+        if os.path.isdir(src) and not os.path.islink(src):
+            shutil.rmtree(src)
+        else:
+            os.unlink(src)
 
 
 class Files(Gtk.Application):
@@ -449,7 +495,7 @@ class Files(Gtk.Application):
             new = self.ask_name("Новое имя", name)
             if new and new != name:
                 try:
-                    os.rename(full, os.path.join(os.path.dirname(full), new))
+                    rename_noreplace(full, os.path.join(os.path.dirname(full), new))
                 except OSError as exc:
                     self.toast("Не удалось: %s" % exc.strerror)
                 self.go(self.path)
@@ -483,10 +529,10 @@ class Files(Gtk.Application):
             err = None
             for src in paths:
                 target = os.path.join(dest, os.path.basename(src))
-                if os.path.exists(target):
+                if os.path.lexists(target):
                     base, ext = os.path.splitext(target)
                     n = 2
-                    while os.path.exists("%s (%d)%s" % (base, n, ext)):
+                    while os.path.lexists("%s (%d)%s" % (base, n, ext)):
                         n += 1
                     target = "%s (%d)%s" % (base, n, ext)
                 try:
@@ -496,12 +542,7 @@ class Files(Gtk.Application):
                         if os.path.commonpath((real_src, real_target)) == real_src:
                             err = "Нельзя вставить папку в саму себя."
                             continue
-                    if how == "cut":
-                        shutil.move(src, target)
-                    elif os.path.isdir(src):
-                        shutil.copytree(src, target, symlinks=True)
-                    else:
-                        shutil.copy2(src, target)
+                    paste_file(src, target, cut=how == "cut")
                 except (OSError, shutil.Error) as exc:
                     err = str(exc)
             GLib.idle_add(self.pasted, err, how)
