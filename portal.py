@@ -78,13 +78,30 @@ class Portal:
         self.conn = None
         self.windows = {}  # handle -> (Chooser, request object id)
         self.idle = None
+        self.action_export = 0
+        self.chooser_owner = 0
 
     def connected(self, conn, _name):
         """On the bus, before the name: a call that started this process by
         activation is delivered as soon as the name is ours."""
         self.conn = conn
+        # NON_UNIQUE keeps the portal alive independently of application
+        # activation. Publish its actions under the chooser's window app id.
+        self.action_export = conn.export_action_group(
+            "/" + chooser.CHOOSER_ID.replace(".", "/"), self.application)
+        self.chooser_owner = Gio.bus_own_name_on_connection(
+            conn, chooser.CHOOSER_ID, Gio.BusNameOwnerFlags.NONE,
+            None, lambda *_a: self.application.quit())
         conn.register_object(PATH, CHOOSER_IFACE, self.method, None, None)
         self.wait()
+
+    def shutdown(self, _app):
+        if self.chooser_owner:
+            Gio.bus_unown_name(self.chooser_owner)
+            self.chooser_owner = 0
+        if self.action_export:
+            self.conn.unexport_action_group(self.action_export)
+            self.action_export = 0
 
     def method(self, conn, sender, path, iface, name, params, invocation):
         handle, app_id, _parent, title, options = params.unpack()
@@ -153,7 +170,8 @@ class Portal:
 
 
 def main():
-    app = Gtk.Application(application_id=chooser.CHOOSER_ID)
+    app = Gtk.Application(application_id=chooser.CHOOSER_ID,
+                          flags=Gio.ApplicationFlags.NON_UNIQUE)
     portal = Portal(app)
 
     def back():
@@ -178,5 +196,6 @@ def main():
                          portal.connected, None, lambda *_a: app.quit())
 
     app.connect("startup", startup)
+    app.connect("shutdown", portal.shutdown)
     app.connect("activate", lambda *_a: None)
     return app.run([sys.argv[0]])
