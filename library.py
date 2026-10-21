@@ -14,7 +14,7 @@ Library(home, cache) is the one interface the window uses:
   counts()        how many of each kind
   by_month(items) [(label, items)] by the month the file was made
   by_folder(items) [(label, folder, items)] by folder, newest first
-  forget(item)    take a deleted file out
+  forget(item)    take a deleted file out (also out of a scan going on)
 
 An item is a dict: path, kind, size, mtime, and for video and sound
 duration (seconds or None), for sound title and artist when tagged. Hidden
@@ -23,6 +23,7 @@ haltia-kit's freedesktop thumbnails (haltia_kit.photos).
 """
 import json
 import os
+import tempfile
 import threading
 
 from haltia_kit.formats import month, nice_date, nice_duration, nice_size, plural  # noqa: F401
@@ -31,6 +32,7 @@ from haltia_kit.photos import kind_of, media_info
 KINDS = ("photo", "video", "audio")
 LIMIT = 30000  # files at most, so a huge card cannot eat the memory
 DEPTH = 12
+CHECKPOINT = 500  # files read in a scan between writes of the index
 
 
 def files_word(n):
@@ -89,7 +91,9 @@ class Library:
         self.roots = roots
         self.index_path = os.path.join(cache, "index.json")
         self.known = {}  # path -> item
+        self.forgotten = set()  # paths taken out since the scan began
         self.lock = threading.Lock()
+        self.saving = threading.Lock()  # one writer of the index at a time
 
     # --- the index -------------------------------------------------------
     def load(self):
@@ -103,23 +107,42 @@ class Library:
             self.known = items
         return bool(items)
 
-    def save(self):
+    def save(self, found=None):
+        """Writes the index: what is known, and found (a scan's items so far)
+        besides. One writer at a time, each through a file of its own."""
         os.makedirs(self.cache, mode=0o700, exist_ok=True)
-        with self.lock:
-            items = list(self.known.values())
-        tmp = self.index_path + ".new"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            # ASCII escapes keep names that are not UTF-8 (as surrogates).
-            json.dump({"items": items}, fh)
-        os.replace(tmp, self.index_path)
+        with self.saving:
+            with self.lock:
+                items = dict(self.known)
+                if found:
+                    items.update((p, i) for p, i in found.items() if p not in self.forgotten)
+            fd, tmp = tempfile.mkstemp(prefix="index.", suffix=".new", dir=self.cache)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    # ASCII escapes keep names that are not UTF-8 (as surrogates).
+                    json.dump({"items": list(items.values())}, fh)
+                os.replace(tmp, self.index_path)
+            except BaseException:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
+
+    def save_quietly(self, found=None):
+        try:
+            self.save(found)
+        except OSError:
+            pass
 
     def scan(self):
         roots = self.roots if self.roots is not None else \
             [self.home] + card_roots(self.user)
-        found = walk(roots)
         with self.lock:
             old = dict(self.known)
-        fresh, changed = {}, False
+            self.forgotten = set()
+        found = walk(roots)
+        fresh, changed, read = {}, False, 0
         for path, size, mtime in found:
             item = old.get(path)
             if not item or item["size"] != size or item["mtime"] != mtime:
@@ -127,25 +150,27 @@ class Library:
                 if item["kind"] != "photo":
                     item.update(media_info(path, item["kind"]))
                 changed = True
+                read += 1
+                if read % CHECKPOINT == 0:  # a long scan cut short keeps its work
+                    self.save_quietly(fresh)
             fresh[path] = item
+        with self.lock:
+            # Files deleted while the scan went on stay out.
+            for path in self.forgotten:
+                fresh.pop(path, None)
+            self.known = fresh
         if set(fresh) != set(old):
             changed = True
-        with self.lock:
-            self.known = fresh
         if changed:
-            try:
-                self.save()
-            except OSError:
-                pass
+            self.save_quietly()
         return changed
 
     def forget(self, item):
+        """Takes a deleted file out; the index is written in a thread."""
         with self.lock:
             self.known.pop(item["path"], None)
-        try:
-            self.save()
-        except OSError:
-            pass
+            self.forgotten.add(item["path"])
+        threading.Thread(target=self.save_quietly).start()
 
     # --- what the window shows ---------------------------------------------
     def items(self, kind="all"):

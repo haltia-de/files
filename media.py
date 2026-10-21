@@ -19,6 +19,7 @@ import library  # noqa: E402
 TILE = 208  # px of a tile's picture; five fit beside the panel
 ROW_PIC = 88
 CHUNK = 60  # tiles added at a time, more as one scrolls near the end
+SHOWN_MAX = 600  # tiles built until «Показать ещё»: each keeps its small picture
 ICONS = {"photo": "image-x-generic", "video": "video-x-generic", "audio": "audio-x-generic",
          "folder": "folder"}
 
@@ -29,6 +30,8 @@ CSS = b"""
   border-radius: 8px; padding: 2px 8px; }
 flowboxchild { padding: 0; border-radius: 12px; }
 flowboxchild:active { background-color: #c4dcf7; }
+button.more { background-image: none; border: none; box-shadow: none; border-radius: 16px;
+  min-height: 60px; font-size: 21px; margin: 8px 0; background-color: #f2f2f0; color: #2e3436; }
 label.section { font-size: 26px; font-weight: bold; color: #2e3436; margin: 12px 4px 4px 4px; }
 .soundbar { background-color: #dcdcda; padding: 8px 16px; }
 .soundbar label.ttl { font-size: 22px; font-weight: bold; color: #2e3436; }
@@ -142,6 +145,8 @@ def row_box(item, thumbs, sub=None):
     small = Gtk.Label(label=sub if sub is not None else subline(item), xalign=0)
     small.set_ellipsize(Pango.EllipsizeMode.END)
     small.get_style_context().add_class("sub")
+    if "sub_label" in item:  # a line that comes later (a folder's count)
+        item["sub_label"] = small
     text.pack_start(small, False, False, 0)
     box.pack_start(text, True, True, 0)
     if "marked" in item:
@@ -162,9 +167,11 @@ def check(item, halign, valign):
 
 class Grid:
     """Groups of items as tiles or rows in a scrolled box, built CHUNK at a
-    time as one nears the end. show(groups, rows) takes [(label or None,
-    items)]; a tap calls opened(item), a long press held(item). Tiles come
-    per_line to a line (five beside the panel, fewer beside more)."""
+    time as one nears the end, SHOWN_MAX at most until «Показать ещё».
+    show(groups, rows, keep) takes [(label or None, items)]; with keep the
+    page stays where it was scrolled to. A tap calls opened(item), a long
+    press held(item). Tiles come per_line to a line (five beside the panel,
+    fewer beside more)."""
 
     def __init__(self, thumbs, opened, held, per_line=5):
         self.thumbs, self.opened, self.held_cb = thumbs, opened, held
@@ -176,18 +183,35 @@ class Grid:
         self.groups, self.rows = [], False
         self.gi = self.ii = 0
         self.part = None
+        self.built, self.limit = 0, SHOWN_MAX
+        self.more_btn = None
         self.held = False
 
-    def show(self, groups, rows=False):
+    def show(self, groups, rows=False, keep=False):
+        adj = self.scroll.get_vadjustment()
+        value, built = (adj.get_value(), self.built) if keep else (0, 0)
+        if not keep:
+            self.limit = SHOWN_MAX
         self.thumbs.reset()
         clear(self.box)
+        self.more_btn = None
         self.groups, self.rows = [(lbl, list(items)) for lbl, items in groups], rows
         self.gi = self.ii = 0
         self.part = None
-        self.scroll.get_vadjustment().set_value(0)
-        self.more(CHUNK)
+        self.built = 0
+        adj.set_value(0)
+        self.box.show()
+        self.more(max(CHUNK, built))
+        if value:  # once the new tiles have their sizes
+            GLib.idle_add(self._scroll_to, value)
 
     def more(self, n):
+        """n items more at the end; only the new ones are shown."""
+        if self.more_btn:
+            self.box.remove(self.more_btn)
+            self.more_btn.destroy()
+            self.more_btn = None
+        n = min(n, self.limit - self.built)
         while n > 0 and self.gi < len(self.groups):
             label, items = self.groups[self.gi]
             if self.ii == 0:
@@ -195,16 +219,32 @@ class Grid:
                     head = Gtk.Label(label=label, xalign=0)
                     head.get_style_context().add_class("section")
                     self.box.pack_start(head, False, False, 0)
+                    head.show()
                 self.part = self._part()
                 self.box.pack_start(self.part, False, False, 0)
+                self.part.show()
             take = items[self.ii:self.ii + n]
             for item in take:
                 self._add(item)
             self.ii += len(take)
+            self.built += len(take)
             n -= len(take)
             if self.ii >= len(items):
                 self.gi, self.ii = self.gi + 1, 0
-        self.box.show_all()
+        if self.gi < len(self.groups) and self.built >= self.limit:
+            self.more_btn = Gtk.Button(label="Показать ещё")
+            self.more_btn.get_style_context().add_class("more")
+            self.more_btn.connect("clicked", lambda _b: self._show_more())
+            self.box.pack_start(self.more_btn, False, False, 0)
+            self.more_btn.show()
+
+    def _show_more(self):
+        self.limit += SHOWN_MAX
+        self.more(CHUNK)
+
+    def _scroll_to(self, value):
+        self.scroll.get_vadjustment().set_value(value)
+        return False
 
     def _part(self):
         if self.rows:
@@ -233,11 +273,13 @@ class Grid:
             row.item = item
             row.add(row_box(item, self.thumbs))
             self.part.add(row)
+            row.show_all()
         else:
             child = Gtk.FlowBoxChild()
             child.item = item
             child.add(tile(item, self.thumbs))
             self.part.add(child)
+            child.show_all()
 
     def _tap(self, item):
         if self.held:  # the release after a long press opens nothing
@@ -254,7 +296,7 @@ class Grid:
 
     def _moved(self, adj):
         if adj.get_value() + adj.get_page_size() > adj.get_upper() - 900:
-            if self.gi < len(self.groups):
+            if self.gi < len(self.groups) and self.built < self.limit:
                 self.more(CHUNK)
 
 

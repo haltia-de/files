@@ -20,6 +20,7 @@ chooser.py): an xdg-desktop-portal backend, started by D-Bus.
 """
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -48,6 +49,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402,F811
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE if os.path.exists(os.path.join(HERE, "media.py"))
                 else os.path.join(os.path.dirname(HERE), "lib", "haltia-files"))
+import choosing  # noqa: E402
 import library  # noqa: E402
 import media  # noqa: E402
 
@@ -126,41 +128,27 @@ def objects(n):
     return "%d %s" % (n, word)
 
 
-def xdg_dir(name, fallbacks):
+def read_folder(path, hidden):
+    """[(name, full, stat, is_dir)] of a folder, folders first, then by name,
+    LIST_MAX at most; the OSError when it cannot be read. Blocking: a thread."""
     try:
-        out = subprocess.run(["xdg-user-dir", name], capture_output=True, text=True,
-                             timeout=3).stdout.strip()
-        if out and out != HOME and os.path.isdir(out):
-            return out
-    except (OSError, subprocess.SubprocessError):
-        pass
-    for fallback in fallbacks:
-        path = os.path.join(HOME, fallback)
-        if os.path.isdir(path):
-            return path
-    return None
-
-
-def places():
-    out = [("Дом", HOME)]
-    # The folder by its XDG name, else by the Russian or the English one.
-    for key, ru, en in (("DOCUMENTS", "Документы", "Documents"),
-                        ("DOWNLOAD", "Загрузки", "Downloads"),
-                        ("PICTURES", "Изображения", "Pictures"),
-                        ("MUSIC", "Музыка", "Music"), ("VIDEOS", "Видео", "Videos")):
-        path = xdg_dir(key, (ru, en))
-        if path:
-            out.append((ru, path))
-    for base in ("/media", "/run/media/" + os.environ.get("USER", "user"), "/mnt"):
+        with os.scandir(path) as it:
+            found = list(it)
+    except OSError as exc:
+        return exc
+    entries = []
+    for e in found:
+        if not hidden and e.name.startswith("."):
+            continue
         try:
-            for name in sorted(os.listdir(base)):
-                path = os.path.join(base, name)
-                if os.path.ismount(path):
-                    out.append(("Карта памяти" if "sd" in name or "mmc" in name else name, path))
+            st = e.stat()
         except OSError:
-            pass
-    out.append(("Система", "/"))
-    return out
+            continue
+        is_dir = stat.S_ISDIR(st.st_mode)
+        entries.append((not is_dir, e.name.casefold(), e.name, os.path.join(path, e.name),
+                        st, is_dir))
+    entries.sort()
+    return [e[2:] for e in entries[:LIST_MAX]]
 
 
 class Files(Gtk.Application):
@@ -171,6 +159,7 @@ class Files(Gtk.Application):
         self.hidden = False
         self.clip = None  # ("copy" | "cut", [paths])
         self.viewer = None
+        self.going = 0  # the folder asked for last; older listings are dropped
         self.settings = Settings("files")
         self.tiles = self.settings.get_bool("tiles", False)
         self.lib = library.Library(HOME, CACHE)
@@ -257,7 +246,7 @@ class Files(Gtk.Application):
         for child in self.places_box.get_children():
             self.places_box.remove(child)
             child.destroy()
-        for name, path in places():
+        for name, path in choosing.places(everything=True):
             btn = Gtk.Button(label=name)
             ctx = btn.get_style_context()
             ctx.add_class("place")
@@ -269,45 +258,67 @@ class Files(Gtk.Application):
 
     # --- folders ------------------------------------------------------------
     def go(self, path):
-        try:
-            names = os.listdir(path)
-        except OSError as exc:
-            self.toast("Нельзя открыть: %s" % exc.strerror)
-            return
+        """Opens a folder: it is read in a thread and shown when it comes."""
+        self.going += 1
+        token, hidden = self.going, self.hidden
+
+        def work():
+            GLib.idle_add(self.listed, token, path, read_folder(path, hidden))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def listed(self, token, path, entries):
+        if token != self.going:
+            return False
+        if isinstance(entries, OSError):
+            self.toast("Нельзя открыть: %s" % entries.strerror)
+            return False
         self.path = path
         self.header.set_title(media.shown(os.path.basename(path.rstrip("/"))) or "Система")
         self.where.set_text(media.shown(path.replace(HOME, "~", 1) if path.startswith(HOME)
                                         else path))
         self.up_btn.set_sensitive(path != "/")
         self.fill_places()
-        if not self.hidden:
-            names = [n for n in names if not n.startswith(".")]
-        entries = []
-        for name in names[:LIST_MAX]:
-            full = os.path.join(path, name)
-            try:
-                st = os.stat(full)
-                is_dir = os.path.isdir(full)
-            except OSError:
-                continue
-            entries.append((not is_dir, name.casefold(), name, full, st, is_dir))
-        entries.sort()
-        items = [self.item(name, full, st, is_dir) for _f, _k, name, full, st, is_dir in entries]
+        items = [self.item(name, full, st, is_dir) for name, full, st, is_dir in entries]
         if items:
             self.grid.show([(None, items)], rows=not self.tiles)
         else:
             self.grid.show([(None, [{"kind": "note", "label": "Пустая папка", "sub": "",
                                      "path": None}])], rows=True)
+        if not self.tiles:
+            self.count(token, [i for i in items if i.get("dir")])
+        return False
+
+    def count(self, token, folders):
+        """What each folder holds, read in a thread after the folder is shown;
+        each row gets its line as it comes."""
+        def work():
+            for item in folders:
+                if token != self.going:
+                    return
+                try:
+                    with os.scandir(item["path"]) as it:
+                        sub = objects(sum(1 for _e in it))
+                except OSError:
+                    sub = "нет доступа"
+                GLib.idle_add(self.counted, token, item, sub)
+
+        if folders:
+            threading.Thread(target=work, daemon=True).start()
+
+    def counted(self, token, item, sub):
+        if token == self.going:
+            item["sub"] = sub
+            if item["sub_label"]:
+                item["sub_label"].set_text(sub)
+        return False
 
     def item(self, name, full, st, is_dir):
         """A folder or file as the grid shows it; media files get their small
-        picture from the library."""
+        picture from the library. What a folder holds comes later (count)."""
         if is_dir:
-            try:
-                sub = objects(len(os.listdir(full)))
-            except OSError:
-                sub = "нет доступа"
-            return {"kind": "folder", "label": name, "path": full, "sub": sub, "dir": True}
+            return {"kind": "folder", "label": name, "path": full, "sub": "", "dir": True,
+                    "sub_label": None}
         kind = library.kind_of(name)
         item = {"path": full, "size": st.st_size, "mtime": st.st_mtime, "label": name,
                 "sub": "%s · %s" % (nice_size(st.st_size),

@@ -6,6 +6,7 @@ haltia-kit, installed or checked out next to this repository as kit/)."""
 import os
 import sys
 import tempfile
+import threading
 import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -96,8 +97,38 @@ assert lib.scan() is True and len(lib.items()) == 4
 print("names ok")
 
 
-lib.forget(lib.items("photo")[0])
+gone = lib.items("photo")[0]
+lib.forget(gone)
 assert lib.counts()["photo"] == 1
+for t in threading.enumerate():  # the index is written in a thread
+    if t is not threading.current_thread():
+        t.join()
+lib4 = library.Library(home, cache, roots=[home])
+assert lib4.load() and gone["path"] not in {i["path"] for i in lib4.items()}
+assert [n for n in os.listdir(cache) if n.endswith(".new")] == []
+print("forget ok")
+
+# A file taken out while a scan goes on does not come back with it, and a
+# long scan writes the index on the way.
+put("Музыка/other.mp3", b"another song", sep3)
+reading = library.media_info
+saves = []
+lib.save = lambda found=None: saves.append(found is not None)
+
+
+def read_and_forget(path, kind):
+    lib.forget({"path": v1})
+    return reading(path, kind)
+
+
+library.media_info, library.CHECKPOINT = read_and_forget, 1
+lib.scan()
+library.media_info, library.CHECKPOINT = reading, 500
+del lib.save
+assert v1 not in {i["path"] for i in lib.items()}
+assert os.path.join(home, "Музыка/other.mp3") in {i["path"] for i in lib.items()}
+assert True in saves
+print("scan and forget ok")
 assert library.nice_duration(65) == "1:05" and library.nice_duration(3725) == "1:02:05"
 assert library.nice_size(2048) == "2.0 КБ"
 assert library.files_word(1) == "1 файл" and library.files_word(3) == "3 файла"
