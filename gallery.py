@@ -81,6 +81,7 @@ class Gallery(Gtk.Application):
         self.folder = None  # the folder open in По папкам
         self.scanning = False
         self.scanned_at = 0.0
+        self.stale = False  # the page under the viewer is to be filled again
 
     # --- the window ---------------------------------------------------------
     def do_activate(self):
@@ -164,8 +165,10 @@ class Gallery(Gtk.Application):
     def scanned(self, changed):
         self.scanning = False
         self.scanned_at = time.monotonic()
-        if changed or not self.lib.items():
-            self.fill()
+        if self.stack.get_visible_child_name() == "viewer":
+            self.stale = self.stale or changed  # the page is filled when the viewer closes
+        elif changed or not self.lib.items():
+            self.fill(keep=True)
         else:
             self.subtitle()
         return False
@@ -176,8 +179,10 @@ class Gallery(Gtk.Application):
         self.header.set_subtitle(library.files_word(n) if n or not self.scanning
                                  else "ищу файлы…")
 
-    def fill(self):
-        """The filter row and the files, as chosen."""
+    def fill(self, keep=False):
+        """The filter row and the files, as chosen; keep stays where the page
+        was scrolled to."""
+        self.stale = False
         counts = self.lib.counts()
         media.clear(self.filter_box)
         for key, label in FILTERS:
@@ -210,17 +215,17 @@ class Gallery(Gtk.Application):
                 self.header.set_title(media.shown(self.lib.folder_label(self.folder)))
                 self.header.set_subtitle(library.files_word(len(inside)))
                 self.back_btn.show()
-                self.grid.show([(None, inside)])
+                self.grid.show([(None, inside)], keep=keep)
                 return
             self.folder = None
         self.header.set_title("Галерея")
         self.back_btn.hide()
         if self.view == "tiles":
-            self.grid.show([(None, items)])
+            self.grid.show([(None, items)], keep=keep)
         elif self.view == "list":
-            self.grid.show([(None, items)], rows=True)
+            self.grid.show([(None, items)], rows=True, keep=keep)
         elif self.view == "months":
-            self.grid.show(self.lib.by_month(items))
+            self.grid.show(self.lib.by_month(items), keep=keep)
         else:
             folders = []
             for label, folder, inside in self.lib.by_folder(items):
@@ -229,7 +234,7 @@ class Gallery(Gtk.Application):
                                 "cover": cover,
                                 "sub": "%s · %s" % (library.files_word(len(inside)),
                                                     library.nice_date(inside[0]["mtime"]))})
-            self.grid.show([(None, folders)], rows=True)
+            self.grid.show([(None, folders)], rows=True, keep=keep)
 
     def set_kind(self, kind):
         self.kind = kind
@@ -258,6 +263,9 @@ class Gallery(Gtk.Application):
         if self.stack.get_visible_child_name() == "viewer":
             self.viewer.close()
             self.stack.set_visible_child_name("browse")
+            if self.stale:
+                self.fill(keep=True)
+                return
             self.header.set_title(media.shown(self.lib.folder_label(self.folder))
                                   if self.folder else "Галерея")
             self.back_btn.set_visible(bool(self.folder))
@@ -355,20 +363,12 @@ class Gallery(Gtk.Application):
                     return False
             self.lib.forget(item)
             if self.stack.get_visible_child_name() == "viewer":
-                self.fill_keep()
+                self.stale = True
                 if not self.viewer.drop(item):
                     self.back()
             else:
-                self.fill()
+                self.fill(keep=True)
         return False
-
-    def fill_keep(self):
-        """The page under the viewer again, the viewer left as it is."""
-        shown = self.stack.get_visible_child_name()
-        self.fill()
-        if shown == "viewer":
-            self.back_btn.show()
-            self.stack.set_visible_child_name("viewer")
 
     def toast(self, text):
         dialogs.info(self.win, text)
