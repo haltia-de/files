@@ -73,10 +73,15 @@ def icon_image(item, size):
     return image
 
 
+def shown(name):
+    """A file name as text GTK takes: bytes that are not UTF-8 become �."""
+    return GLib.filename_display_name(name)
+
+
 def caption(item):
     if item["kind"] == "audio" and item.get("title"):
         return item["title"]
-    return os.path.basename(item["path"])
+    return shown(os.path.basename(item["path"]))
 
 
 def subline(item):
@@ -108,7 +113,7 @@ def tile(item, thumbs, size=TILE):
         over.add_overlay(check(item, Gtk.Align.END, Gtk.Align.START))
     box.pack_start(over, False, False, 0)
     if item["kind"] != "photo" or item.get("label"):
-        cap = Gtk.Label(label=item.get("label") or caption(item), max_width_chars=1)
+        cap = Gtk.Label(label=shown(item.get("label") or caption(item)), max_width_chars=1)
         cap.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
         cap.set_size_request(size, -1)
         cap.get_style_context().add_class("cap")
@@ -130,7 +135,7 @@ def row_box(item, thumbs, sub=None):
     want(thumbs, item, image, ROW_PIC)
     box.pack_start(image, False, False, 0)
     text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
-    name = Gtk.Label(label=item.get("label") or caption(item), xalign=0)
+    name = Gtk.Label(label=shown(item.get("label") or caption(item)), xalign=0)
     name.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
     name.get_style_context().add_class("name")
     text.pack_start(name, False, False, 0)
@@ -259,7 +264,8 @@ class Viewer(photos.Viewer):
 
     def __init__(self, titled, held):
         self.by_path = {}
-        super().__init__(titled, lambda path: held(self.by_path.get(path, {"path": path})))
+        super().__init__(lambda title: titled(shown(title)),
+                         lambda path: held(self.by_path.get(path, {"path": path})))
 
     def show(self, items, i=0):
         self.by_path = {x["path"]: x for x in items}

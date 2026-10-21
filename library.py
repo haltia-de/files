@@ -109,7 +109,8 @@ class Library:
             items = list(self.known.values())
         tmp = self.index_path + ".new"
         with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump({"items": items}, fh, ensure_ascii=False)
+            # ASCII escapes keep names that are not UTF-8 (as surrogates).
+            json.dump({"items": items}, fh)
         os.replace(tmp, self.index_path)
 
     def scan(self):

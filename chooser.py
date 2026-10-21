@@ -172,15 +172,21 @@ class Chooser(Gtk.Window):
         self.add(self.stack)
         self.show_all()
 
-        if request.mode == "save":
-            name = request.name or choosing.new_name()
-            self.saving_folder = choosing.save_folder(name, request.folder)
-            self.save_name = choosing.free_name(self.saving_folder, name)
-            self.show_save()
-        else:
-            last = self.settings.get("last." + _app_key(request.app))
-            start = choosing.start_folder(request.folder, request.current_filter(), last)
-            self.go(start)
+        try:
+            if request.mode == "save":
+                name = request.name or choosing.new_name()
+                self.saving_folder = choosing.save_folder(name, request.folder)
+                self.save_name = choosing.free_name(self.saving_folder, name)
+                self.show_save()
+            else:
+                last = self.settings.get("last." + _app_key(request.app))
+                start = choosing.start_folder(request.folder, request.current_filter(), last)
+                self.go(start)
+        except Exception:
+            # The caller answers the error; the window must not stay behind.
+            self.finished = True
+            self.destroy()
+            raise
 
     @staticmethod
     def _default_title(request):
@@ -332,7 +338,7 @@ class Chooser(Gtk.Window):
         if found and path == found[1]:
             self.where.set_text(found[0])
         else:
-            self.where.set_text(os.path.basename(path.rstrip("/")) or "Система")
+            self.where.set_text(media.shown(os.path.basename(path.rstrip("/"))) or "Система")
         self._fill_places()
         self.show_entries(entries, "Здесь нет подходящих файлов" if not self.folders_only()
                           else "Здесь нет папок")
@@ -466,15 +472,17 @@ class Chooser(Gtk.Window):
         return os.path.basename(path.rstrip("/")) or "Система"
 
     def show_save(self):
-        self.save_what.set_text("Сохранить «%s»" % self.save_name)
-        self.save_where.set_text("в папку «%s»" % self.folder_label(self.saving_folder))
+        self.save_what.set_text("Сохранить «%s»" % media.shown(self.save_name))
+        self.save_where.set_text("в папку «%s»" % media.shown(
+            self.folder_label(self.saving_folder)))
         self.stack.set_visible_child_name("save")
         self.header.set_title(self.get_title())
         self._update_back()
 
     def rename(self):
-        text = dialogs.text(self, "Имя файла", self.save_name)
-        if not text:
+        shown = media.shown(self.save_name)
+        text = dialogs.text(self, "Имя файла", shown)
+        if not text or text == shown:
             return
         self.save_name = choosing.free_name(self.saving_folder, text)
         self.show_save()
