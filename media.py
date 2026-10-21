@@ -12,9 +12,35 @@ import gi
 gi.require_version("Gdk", "3.0")
 gi.require_version("Gtk", "3.0")
 from haltia_kit import photos, sound  # noqa: E402
-from gi.repository import GLib, Gtk, Pango  # noqa: E402
+from gi.repository import Gio, GLib, Gtk, Pango  # noqa: E402
 
 import library  # noqa: E402
+
+
+def back_action(app, callback):
+    """The shell and the header use the same exported action."""
+    action = Gio.SimpleAction.new("back", None)
+    action.set_enabled(False)
+    action.connect("activate", lambda *_a: callback())
+    app.add_action(action)
+    return action
+
+
+def back_button(header, action):
+    # Keep the shell's home button and the title out of each other's way.
+    corner = Gtk.Box()
+    corner.set_size_request(110, -1)
+    button = Gtk.Button(label="←", action_name="app.back")
+    button.get_style_context().add_class("back")
+    button.set_no_show_all(True)
+    changed = action.connect("notify::enabled",
+                             lambda *_a: button.set_visible(action.get_enabled()))
+    button.connect("destroy", lambda *_a: action.disconnect(changed))
+    button.set_visible(action.get_enabled())
+    corner.pack_start(button, False, False, 0)
+    header.pack_start(corner)
+    return button
+
 
 TILE = 208  # px of a tile's picture; five fit beside the panel
 ROW_PIC = 88

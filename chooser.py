@@ -131,7 +131,7 @@ class Request:
 class Chooser(Gtk.Window):
     """done(response, results): 0 and {"uris": [...], ...}, or 1 for Отмена."""
 
-    def __init__(self, request, done):
+    def __init__(self, request, done, actions):
         super().__init__(title=request.title or self._default_title(request))
         _css()
         self.request, self.done_cb = request, done
@@ -159,10 +159,11 @@ class Chooser(Gtk.Window):
 
         self.header = Gtk.HeaderBar(title=self.get_title())
         self.header.set_show_close_button(not ON_HALTIA)
-        self.back_btn = Gtk.Button(label="←")
-        self.back_btn.get_style_context().add_class("back")
-        self.back_btn.connect("clicked", lambda *_a: self.back())
-        self.header.pack_start(self.back_btn)
+        # The portal's actions, the ones the shell reads: «←» is «app.back».
+        self.insert_action_group("app", actions)
+        self.back_action = actions.lookup_action("back")
+        self.connect("notify::is-active", lambda *_a: self.is_active() and self._update_back())
+        self.back_btn = media.back_button(self.header, self.back_action)
         self.set_titlebar(self.header)
 
         self.stack = Gtk.Stack(homogeneous=False)
@@ -385,12 +386,14 @@ class Chooser(Gtk.Window):
         return item
 
     def _update_back(self):
-        if self.stack.get_visible_child_name() == "save":
-            self.back_btn.hide()
-            return
+        # The choosers share one action: the one in front sets it.
+        if any(w.is_active() for w in Gtk.Window.list_toplevels() if w is not self):
+            return False
         # Only when it leads somewhere: up a folder, or back to saving.
-        up = self.path is not None and self.path != self.root and self.path != "/"
-        self.back_btn.set_visible(up or self.request.mode == "save")
+        up = self.path is not None and self.path not in (self.root, "/")
+        browse = self.stack.get_visible_child_name() != "save"
+        self.back_action.set_enabled(browse and (up or self.request.mode == "save"))
+        return False
 
     def _update_bottom(self):
         mode = self.request.mode

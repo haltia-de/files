@@ -13,6 +13,10 @@ Each OpenFile or SaveFile opens a window (chooser.Chooser) and answers
 when it closes; Request.Close at the request's handle takes the window
 away. The process stays IDLE seconds after the last window, so the next
 chooser opens at once, then leaves the memory to the programs.
+
+The process also owns io.github.haltia_de.FileChooser and exports its
+actions (org.gtk.Actions) at /io/github/haltia_de/FileChooser: the shell
+reads «back» there, enabled while the chooser in front has a step back.
 """
 import sys
 
@@ -23,6 +27,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gio, GLib, Gtk  # noqa: E402
 
 import chooser  # noqa: E402
+import media  # noqa: E402
 
 BUS_NAME = "org.freedesktop.impl.portal.desktop.haltia"
 PATH = "/org/freedesktop/portal/desktop"
@@ -73,6 +78,12 @@ def results_variant(results):
 
 class Portal:
     def __init__(self):
+        # No Gtk.Application: before its startup it asks the bus for
+        # org.freedesktop.portal.Desktop, while xdg-desktop-portal starts
+        # this backend as it starts itself, so each would wait for the other.
+        # The shell reads «app.back» of the chooser in front from here.
+        self.actions = Gio.SimpleActionGroup()
+        media.back_action(self.actions, self.back)
         self.conn = None
         self.windows = {}  # handle -> (Chooser, request object id)
         self.idle = None
@@ -81,8 +92,17 @@ class Portal:
         """On the bus, before the name: a call that started this process by
         activation is delivered as soon as the name is ours."""
         self.conn = conn
+        conn.export_action_group("/" + chooser.CHOOSER_ID.replace(".", "/"), self.actions)
+        Gio.bus_own_name_on_connection(conn, chooser.CHOOSER_ID, Gio.BusNameOwnerFlags.NONE,
+                                       None, None)
         conn.register_object(PATH, CHOOSER_IFACE, self.method, None, None)
         self.wait()
+
+    def back(self):
+        wins = [entry[0] for entry in self.windows.values()]
+        front = [w for w in wins if w.is_active()] or wins[-1:]
+        if front:
+            front[0].back()
 
     def method(self, conn, sender, path, iface, name, params, invocation):
         handle, app_id, _parent, title, options = params.unpack()
@@ -110,13 +130,15 @@ class Portal:
             entry = self.windows.pop(handle, None)
             if entry and entry[1]:
                 conn.unregister_object(entry[1])
+            if not self.windows:
+                self.actions.lookup_action("back").set_enabled(False)
             results = dict(results, response=response)
             invocation.return_value(results_variant(results))
             self.wait()
 
         try:
             request = chooser.Request(mode, title, options, app_id)
-            win = chooser.Chooser(request, done)
+            win = chooser.Chooser(request, done, self.actions)
         except Exception as exc:  # a broken request must still get an answer
             if reg:
                 conn.unregister_object(reg)
@@ -151,7 +173,7 @@ class Portal:
 
 
 def main():
-    Gtk.init(sys.argv)
+    Gtk.init_check([sys.argv[0]])
     portal = Portal()
     Gio.bus_own_name(Gio.BusType.SESSION, BUS_NAME, Gio.BusNameOwnerFlags.NONE,
                      portal.connected, None, lambda *_a: Gtk.main_quit())
