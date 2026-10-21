@@ -128,12 +128,11 @@ class Request:
         return self.filters[self.filter] if self.filters else None
 
 
-class Chooser(Gtk.ApplicationWindow):
+class Chooser(Gtk.Window):
     """done(response, results): 0 and {"uris": [...], ...}, or 1 for Отмена."""
 
-    def __init__(self, request, done, application):
-        super().__init__(application=application,
-                         title=request.title or self._default_title(request))
+    def __init__(self, request, done, actions):
+        super().__init__(title=request.title or self._default_title(request))
         _css()
         self.request, self.done_cb = request, done
         self.finished = False
@@ -160,7 +159,10 @@ class Chooser(Gtk.ApplicationWindow):
 
         self.header = Gtk.HeaderBar(title=self.get_title())
         self.header.set_show_close_button(not ON_HALTIA)
-        self.back_action = application.lookup_action("back")
+        # The portal's actions, the ones the shell reads: «←» is «app.back».
+        self.insert_action_group("app", actions)
+        self.back_action = actions.lookup_action("back")
+        self.connect("notify::is-active", lambda *_a: self.is_active() and self._update_back())
         self.back_btn = media.back_button(self.header, self.back_action)
         self.set_titlebar(self.header)
 
@@ -384,8 +386,8 @@ class Chooser(Gtk.ApplicationWindow):
         return item
 
     def _update_back(self):
-        app = self.get_application()
-        if app.get_active_window() not in (None, self):
+        # The choosers share one action: the one in front sets it.
+        if any(w.is_active() for w in Gtk.Window.list_toplevels() if w is not self):
             return False
         # Only when it leads somewhere: up a folder, or back to saving.
         up = self.path is not None and self.path not in (self.root, "/")

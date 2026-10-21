@@ -13,6 +13,10 @@ Each OpenFile or SaveFile opens a window (chooser.Chooser) and answers
 when it closes; Request.Close at the request's handle takes the window
 away. The process stays IDLE seconds after the last window, so the next
 chooser opens at once, then leaves the memory to the programs.
+
+The process also owns io.github.haltia_de.FileChooser and exports its
+actions (org.gtk.Actions) at /io/github/haltia_de/FileChooser: the shell
+reads «back» there, enabled while the chooser in front has a step back.
 """
 import sys
 
@@ -73,43 +77,32 @@ def results_variant(results):
 
 
 class Portal:
-    def __init__(self, application):
-        self.application = application
+    def __init__(self):
+        # No Gtk.Application: before its startup it asks the bus for
+        # org.freedesktop.portal.Desktop, while xdg-desktop-portal starts
+        # this backend as it starts itself, so each would wait for the other.
+        # The shell reads «app.back» of the chooser in front from here.
+        self.actions = Gio.SimpleActionGroup()
+        media.back_action(self.actions, self.back)
         self.conn = None
         self.windows = {}  # handle -> (Chooser, request object id)
         self.idle = None
-        self.action_conn = None
-        self.action_export = 0
-        self.chooser_owner = 0
 
     def connected(self, conn, _name):
         """On the bus, before the name: a call that started this process by
         activation is delivered as soon as the name is ours."""
         self.conn = conn
-        # GApplication already exports this path even with NON_UNIQUE.
-        # Use a separate connection for the explicit export and chooser name.
-        self.action_conn = Gio.DBusConnection.new_for_address_sync(
-            Gio.dbus_address_get_for_bus_sync(Gio.BusType.SESSION, None),
-            Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
-            | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
-        self.action_export = self.action_conn.export_action_group(
-            "/" + chooser.CHOOSER_ID.replace(".", "/"), self.application)
-        self.chooser_owner = Gio.bus_own_name_on_connection(
-            self.action_conn, chooser.CHOOSER_ID, Gio.BusNameOwnerFlags.NONE,
-            None, lambda *_a: self.application.quit())
+        conn.export_action_group("/" + chooser.CHOOSER_ID.replace(".", "/"), self.actions)
+        Gio.bus_own_name_on_connection(conn, chooser.CHOOSER_ID, Gio.BusNameOwnerFlags.NONE,
+                                       None, None)
         conn.register_object(PATH, CHOOSER_IFACE, self.method, None, None)
         self.wait()
 
-    def shutdown(self, _app):
-        if self.chooser_owner:
-            Gio.bus_unown_name(self.chooser_owner)
-            self.chooser_owner = 0
-        if self.action_export:
-            self.action_conn.unexport_action_group(self.action_export)
-            self.action_export = 0
-        if self.action_conn:
-            self.action_conn.close_sync(None)
-            self.action_conn = None
+    def back(self):
+        wins = [entry[0] for entry in self.windows.values()]
+        front = [w for w in wins if w.is_active()] or wins[-1:]
+        if front:
+            front[0].back()
 
     def method(self, conn, sender, path, iface, name, params, invocation):
         handle, app_id, _parent, title, options = params.unpack()
@@ -137,13 +130,15 @@ class Portal:
             entry = self.windows.pop(handle, None)
             if entry and entry[1]:
                 conn.unregister_object(entry[1])
+            if not self.windows:
+                self.actions.lookup_action("back").set_enabled(False)
             results = dict(results, response=response)
             invocation.return_value(results_variant(results))
             self.wait()
 
         try:
             request = chooser.Request(mode, title, options, app_id)
-            win = chooser.Chooser(request, done, self.application)
+            win = chooser.Chooser(request, done, self.actions)
         except Exception as exc:  # a broken request must still get an answer
             if reg:
                 conn.unregister_object(reg)
@@ -173,37 +168,14 @@ class Portal:
     def quit(self):
         self.idle = None
         if not self.windows:
-            self.application.quit()
+            Gtk.main_quit()
         return False
 
 
 def main():
-    app = Gtk.Application(application_id=chooser.CHOOSER_ID,
-                          flags=Gio.ApplicationFlags.NON_UNIQUE)
-    portal = Portal(app)
-
-    def back():
-        win = app.get_active_window()
-        if win:
-            win.back()
-
-    media.back_action(app, back)
-
-    def active_changed(_app, _prop):
-        win = app.get_active_window()
-        if win:
-            win._update_back()
-        else:
-            app.lookup_action("back").set_enabled(False)
-
-    app.connect("notify::active-window", active_changed)
-
-    def startup(_app):
-        app.hold()
-        Gio.bus_own_name(Gio.BusType.SESSION, BUS_NAME, Gio.BusNameOwnerFlags.NONE,
-                         portal.connected, None, lambda *_a: app.quit())
-
-    app.connect("startup", startup)
-    app.connect("shutdown", portal.shutdown)
-    app.connect("activate", lambda *_a: None)
-    return app.run([sys.argv[0]])
+    Gtk.init_check([sys.argv[0]])
+    portal = Portal()
+    Gio.bus_own_name(Gio.BusType.SESSION, BUS_NAME, Gio.BusNameOwnerFlags.NONE,
+                     portal.connected, None, lambda *_a: Gtk.main_quit())
+    Gtk.main()
+    return 0

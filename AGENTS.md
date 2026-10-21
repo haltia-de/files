@@ -20,7 +20,8 @@ command `b8k-files` stay, hidden, until 3.0 (ADR 0004).
 - `portal.py`: the xdg-desktop-portal `FileChooser` backend over D-Bus;
   `chooser.py`: its window; `choosing.py`: its decisions, without GTK.
 - `data/`: `.desktop` files, icons, metainfo, `haltia.portal`.
-- `tests/`: `test_library.py`, `test_choosing.py`.
+- `tests/`: `test_library.py`, `test_choosing.py`, `test_back.py` (app.back,
+  and the portal started on a private bus with `dbus-run-session`).
 - `install.sh`, `packaging/alpine/APKBUILD`, `.github/workflows/release.yml`.
 
 ## Run and check
