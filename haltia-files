@@ -154,6 +154,7 @@ def read_folder(path, hidden):
 class Files(Gtk.Application):
     def __init__(self):
         super().__init__(application_id=FILES_ID, flags=Gio.ApplicationFlags.HANDLES_OPEN)
+        self.back_action = media.back_action(self, self.up)
         self.win = None
         self.path = HOME
         self.hidden = False
@@ -185,10 +186,7 @@ class Files(Gtk.Application):
         # The Haltia shell closes windows with its own button; any other desktop
         # gets the usual window buttons in the header.
         self.header.set_show_close_button(not ON_HALTIA)
-        self.up_btn = Gtk.Button(label="←")
-        self.up_btn.get_style_context().add_class("back")
-        self.up_btn.connect("clicked", lambda *_a: self.up())
-        self.header.pack_start(self.up_btn)
+        self.up_btn = media.back_button(self.header, self.back_action)
         self.win.set_titlebar(self.header)
 
         self.stack = Gtk.Stack()
@@ -277,7 +275,8 @@ class Files(Gtk.Application):
         self.header.set_title(media.shown(os.path.basename(path.rstrip("/"))) or "Система")
         self.where.set_text(media.shown(path.replace(HOME, "~", 1) if path.startswith(HOME)
                                         else path))
-        self.up_btn.set_sensitive(path != "/")
+        self.back_action.set_enabled(
+            self.stack.get_visible_child_name() == "viewer" or path not in (HOME, "/"))
         self.fill_places()
         items = [self.item(name, full, st, is_dir) for name, full, st, is_dir in entries]
         if items:
@@ -335,6 +334,8 @@ class Files(Gtk.Application):
         if self.stack.get_visible_child_name() == "viewer":
             self.close_viewer()
             return
+        if self.path in (HOME, "/"):
+            return
         parent = os.path.dirname(self.path.rstrip("/")) or "/"
         self.go(parent)
 
@@ -369,7 +370,7 @@ class Files(Gtk.Application):
         if kind == "photo":
             photos = self.shown("photo")
             self.stack.set_visible_child_name("viewer")
-            self.up_btn.set_sensitive(True)
+            self.back_action.set_enabled(True)
             self.viewer.show(photos, photos.index(item))
         elif kind == "audio":
             sounds = self.shown("audio")
@@ -402,14 +403,14 @@ class Files(Gtk.Application):
         st = os.stat(path)
         item = {"path": path, "kind": "photo", "size": st.st_size, "mtime": st.st_mtime}
         self.stack.set_visible_child_name("viewer")
-        self.up_btn.set_sensitive(True)
+        self.back_action.set_enabled(True)
         self.viewer.show([item], 0)
 
     def close_viewer(self):
         self.viewer.close()
         self.stack.set_visible_child_name("list")
         self.header.set_title(media.shown(os.path.basename(self.path.rstrip("/"))) or "Система")
-        self.up_btn.set_sensitive(self.path != "/")
+        self.back_action.set_enabled(self.path not in (HOME, "/"))
         return True
 
     # --- what can be done with a file -----------------------------------------

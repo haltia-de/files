@@ -74,6 +74,7 @@ def load_choice(key, default, allowed):
 class Gallery(Gtk.Application):
     def __init__(self):
         super().__init__(application_id="io.github.haltia_de.Gallery")
+        self.back_action = media.back_action(self, self.back)
         self.win = None
         self.lib = library.Library(HOME, CACHE)
         self.kind = load_choice("filter", "all", dict(FILTERS))
@@ -100,11 +101,7 @@ class Gallery(Gtk.Application):
         # The Haltia shell closes windows with its own button; any other desktop
         # gets the usual window buttons in the header.
         self.header.set_show_close_button(not ON_HALTIA)
-        self.back_btn = Gtk.Button(label="←")
-        self.back_btn.get_style_context().add_class("back")
-        self.back_btn.connect("clicked", lambda *_a: self.back())
-        self.back_btn.set_no_show_all(True)
-        self.header.pack_start(self.back_btn)
+        self.back_btn = media.back_button(self.header, self.back_action)
         self.view_btn = Gtk.Button.new_from_icon_name("view-grid-symbolic",
                                                       Gtk.IconSize.DIALOG)
         self.view_btn.get_style_context().add_class("back")
@@ -200,6 +197,9 @@ class Gallery(Gtk.Application):
         self.subtitle()
         items = self.lib.items(self.kind)
         if not items:
+            self.folder = None
+            self.header.set_title("Галерея")
+            self.back_action.set_enabled(False)
             self.grid.show([])
             self.grid.scroll.hide()
             self.empty.set_text("Ищу фото, видео и музыку…" if self.scanning else
@@ -214,12 +214,12 @@ class Gallery(Gtk.Application):
             if inside:
                 self.header.set_title(media.shown(self.lib.folder_label(self.folder)))
                 self.header.set_subtitle(library.files_word(len(inside)))
-                self.back_btn.show()
+                self.back_action.set_enabled(True)
                 self.grid.show([(None, inside)], keep=keep)
                 return
             self.folder = None
         self.header.set_title("Галерея")
-        self.back_btn.hide()
+        self.back_action.set_enabled(False)
         if self.view == "tiles":
             self.grid.show([(None, items)], keep=keep)
         elif self.view == "list":
@@ -268,7 +268,7 @@ class Gallery(Gtk.Application):
                 return
             self.header.set_title(media.shown(self.lib.folder_label(self.folder))
                                   if self.folder else "Галерея")
-            self.back_btn.set_visible(bool(self.folder))
+            self.back_action.set_enabled(bool(self.folder))
             if self.folder:
                 self.header.set_subtitle(library.files_word(len(self.shown())))
             else:
@@ -293,7 +293,7 @@ class Gallery(Gtk.Application):
         elif item["kind"] == "photo":
             photos = [i for i in self.shown() if i["kind"] == "photo"]
             self.stack.set_visible_child_name("viewer")
-            self.back_btn.show()
+            self.back_action.set_enabled(True)
             self.header.set_subtitle("")
             self.viewer.show(photos, photos.index(item))
         elif item["kind"] == "video":

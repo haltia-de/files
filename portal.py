@@ -23,6 +23,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gio, GLib, Gtk  # noqa: E402
 
 import chooser  # noqa: E402
+import media  # noqa: E402
 
 BUS_NAME = "org.freedesktop.impl.portal.desktop.haltia"
 PATH = "/org/freedesktop/portal/desktop"
@@ -72,7 +73,8 @@ def results_variant(results):
 
 
 class Portal:
-    def __init__(self):
+    def __init__(self, application):
+        self.application = application
         self.conn = None
         self.windows = {}  # handle -> (Chooser, request object id)
         self.idle = None
@@ -116,7 +118,7 @@ class Portal:
 
         try:
             request = chooser.Request(mode, title, options, app_id)
-            win = chooser.Chooser(request, done)
+            win = chooser.Chooser(request, done, self.application)
         except Exception as exc:  # a broken request must still get an answer
             if reg:
                 conn.unregister_object(reg)
@@ -146,14 +148,36 @@ class Portal:
     def quit(self):
         self.idle = None
         if not self.windows:
-            Gtk.main_quit()
+            self.application.quit()
         return False
 
 
 def main():
-    Gtk.init(sys.argv)
-    portal = Portal()
-    Gio.bus_own_name(Gio.BusType.SESSION, BUS_NAME, Gio.BusNameOwnerFlags.NONE,
-                     portal.connected, None, lambda *_a: Gtk.main_quit())
-    Gtk.main()
-    return 0
+    app = Gtk.Application(application_id=chooser.CHOOSER_ID,
+                         flags=Gio.ApplicationFlags.NON_UNIQUE)
+    portal = Portal(app)
+
+    def back():
+        win = app.get_active_window()
+        if win:
+            win.back()
+
+    media.back_action(app, back)
+
+    def active_changed(_app, _prop):
+        win = app.get_active_window()
+        if win:
+            win._update_back()
+        else:
+            app.lookup_action("back").set_enabled(False)
+
+    app.connect("notify::active-window", active_changed)
+
+    def startup(_app):
+        app.hold()
+        Gio.bus_own_name(Gio.BusType.SESSION, BUS_NAME, Gio.BusNameOwnerFlags.NONE,
+                         portal.connected, None, lambda *_a: app.quit())
+
+    app.connect("startup", startup)
+    app.connect("activate", lambda *_a: None)
+    return app.run([sys.argv[0]])
