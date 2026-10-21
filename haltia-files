@@ -444,11 +444,17 @@ class Files(Gtk.Application):
         elif action == "Удалить":
             try:
                 Gio.File.new_for_path(full).trash(None)
-            except GLib.Error:
+            except GLib.Error as exc:
+                if not exc.matches(Gio.io_error_quark(), Gio.IOErrorEnum.NOT_SUPPORTED):
+                    self.toast("Не удалось переместить в корзину: %s" % exc.message)
+                    return False
+                if not dialogs.ask(self.win, "Удалить навсегда?", "Удалить"):
+                    return False
                 try:
                     shutil.rmtree(full) if os.path.isdir(full) else os.unlink(full)
                 except OSError as exc:
                     self.toast("Не удалось удалить: %s" % exc.strerror)
+                    return False
             if self.stack.get_visible_child_name() == "viewer":
                 if not self.viewer.drop({"path": full}):
                     self.close_viewer()
@@ -472,6 +478,12 @@ class Files(Gtk.Application):
                         n += 1
                     target = "%s (%d)%s" % (base, n, ext)
                 try:
+                    if os.path.isdir(src):
+                        real_src = os.path.realpath(src)
+                        real_target = os.path.realpath(target)
+                        if os.path.commonpath((real_src, real_target)) == real_src:
+                            err = "Нельзя вставить папку в саму себя."
+                            continue
                     if how == "cut":
                         shutil.move(src, target)
                     elif os.path.isdir(src):
