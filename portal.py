@@ -78,6 +78,7 @@ class Portal:
         self.conn = None
         self.windows = {}  # handle -> (Chooser, request object id)
         self.idle = None
+        self.action_conn = None
         self.action_export = 0
         self.chooser_owner = 0
 
@@ -85,12 +86,16 @@ class Portal:
         """On the bus, before the name: a call that started this process by
         activation is delivered as soon as the name is ours."""
         self.conn = conn
-        # NON_UNIQUE keeps the portal alive independently of application
-        # activation. Publish its actions under the chooser's window app id.
-        self.action_export = conn.export_action_group(
+        # GApplication already exports this path even with NON_UNIQUE.
+        # Use a separate connection for the explicit export and chooser name.
+        self.action_conn = Gio.DBusConnection.new_for_address_sync(
+            Gio.dbus_address_get_for_bus_sync(Gio.BusType.SESSION, None),
+            Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
+            | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
+        self.action_export = self.action_conn.export_action_group(
             "/" + chooser.CHOOSER_ID.replace(".", "/"), self.application)
         self.chooser_owner = Gio.bus_own_name_on_connection(
-            conn, chooser.CHOOSER_ID, Gio.BusNameOwnerFlags.NONE,
+            self.action_conn, chooser.CHOOSER_ID, Gio.BusNameOwnerFlags.NONE,
             None, lambda *_a: self.application.quit())
         conn.register_object(PATH, CHOOSER_IFACE, self.method, None, None)
         self.wait()
@@ -100,8 +105,11 @@ class Portal:
             Gio.bus_unown_name(self.chooser_owner)
             self.chooser_owner = 0
         if self.action_export:
-            self.conn.unexport_action_group(self.action_export)
+            self.action_conn.unexport_action_group(self.action_export)
             self.action_export = 0
+        if self.action_conn:
+            self.action_conn.close_sync(None)
+            self.action_conn = None
 
     def method(self, conn, sender, path, iface, name, params, invocation):
         handle, app_id, _parent, title, options = params.unpack()

@@ -164,7 +164,8 @@ class BackTests(unittest.TestCase):
         self.assertFalse(action.get_enabled())
 
     def test_portal_exports_chooser_actions(self):
-        gio = Mock(BusNameOwnerFlags=Gio.BusNameOwnerFlags)
+        gio = Mock(BusNameOwnerFlags=Gio.BusNameOwnerFlags,
+                   BusType=Gio.BusType, DBusConnectionFlags=Gio.DBusConnectionFlags)
         methods = load("portal.py", ["__init__", "connected", "shutdown"],
                        {"Gio": gio, "chooser": SimpleNamespace(
                            CHOOSER_ID="io.github.haltia_de.FileChooser"),
@@ -174,10 +175,16 @@ class BackTests(unittest.TestCase):
         app, conn = Mock(), Mock()
         methods.__init__(portal, app)
         methods.connected(portal, conn, "portal")
-        conn.export_action_group.assert_called_once_with(
+        action_conn = gio.DBusConnection.new_for_address_sync.return_value
+        gio.DBusConnection.new_for_address_sync.assert_called_once_with(
+            gio.dbus_address_get_for_bus_sync.return_value,
+            gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
+            | gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
+        conn.export_action_group.assert_not_called()
+        action_conn.export_action_group.assert_called_once_with(
             "/io/github/haltia_de/FileChooser", app)
         gio.bus_own_name_on_connection.assert_called_once_with(
-            conn, "io.github.haltia_de.FileChooser", Gio.BusNameOwnerFlags.NONE,
+            action_conn, "io.github.haltia_de.FileChooser", Gio.BusNameOwnerFlags.NONE,
             None, unittest.mock.ANY)
         lost = gio.bus_own_name_on_connection.call_args.args[-1]
         lost(conn, "io.github.haltia_de.FileChooser")
@@ -185,10 +192,11 @@ class BackTests(unittest.TestCase):
         methods.shutdown(portal, app)
         gio.bus_unown_name.assert_called_once_with(
             gio.bus_own_name_on_connection.return_value)
-        conn.unexport_action_group.assert_called_once_with(
-            conn.export_action_group.return_value)
+        action_conn.unexport_action_group.assert_called_once_with(
+            action_conn.export_action_group.return_value)
         methods.shutdown(portal, app)
-        self.assertEqual(conn.unexport_action_group.call_count, 1)
+        self.assertEqual(action_conn.unexport_action_group.call_count, 1)
+        action_conn.close_sync.assert_called_once_with(None)
 
     def test_header_corner(self):
         gtk = Mock()
