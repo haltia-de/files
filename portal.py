@@ -153,8 +153,7 @@ class Portal:
 
 
 def main():
-    app = Gtk.Application(application_id=chooser.CHOOSER_ID,
-                         flags=Gio.ApplicationFlags.NON_UNIQUE)
+    app = Gtk.Application(application_id=chooser.CHOOSER_ID)
     portal = Portal(app)
 
     def back():

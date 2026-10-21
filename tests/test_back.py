@@ -146,6 +146,8 @@ class BackTests(unittest.TestCase):
                         "chooser": SimpleNamespace(CHOOSER_ID="io.github.haltia_de.FileChooser"),
                         "sys": SimpleNamespace(argv=["haltia-files"])})
         methods.main()
+        gtk.Application.assert_called_once_with(
+            application_id="io.github.haltia_de.FileChooser")
         action = group.lookup_action("back")
         self.assertFalse(action.get_enabled())
         first, second = Mock(), Mock()
