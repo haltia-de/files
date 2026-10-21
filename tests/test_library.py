@@ -86,6 +86,15 @@ assert [label for label, _f, _i in folders] == ["Downloads/MAX", "Видео", "
 assert lib.folder_label(home) == "Дом"
 print("groups ok")
 
+# A name that is not UTF-8 is found, saved in the index and read back.
+bad = put(os.path.join("Музыка", os.fsdecode(b"a\xff") + ".mp3"), b"not a real song", sep3)
+assert lib.scan() is True and bad in {i["path"] for i in lib.items("audio")}
+lib3 = library.Library(home, cache, roots=[home])
+assert lib3.load() and bad in {i["path"] for i in lib3.items("audio")}
+os.unlink(bad)
+assert lib.scan() is True and len(lib.items()) == 4
+print("names ok")
+
 
 lib.forget(lib.items("photo")[0])
 assert lib.counts()["photo"] == 1

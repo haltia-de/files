@@ -101,7 +101,12 @@ class Portal:
         except GLib.Error:
             pass
 
+        answered = []
+
         def done(response, results):
+            if answered:  # one answer per call
+                return
+            answered.append(response)
             entry = self.windows.pop(handle, None)
             if entry and entry[1]:
                 conn.unregister_object(entry[1])
@@ -116,7 +121,9 @@ class Portal:
             if reg:
                 conn.unregister_object(reg)
             sys.stderr.write("chooser: %s\n" % exc)
-            invocation.return_value(GLib.Variant("(ua{sv})", (2, {})))
+            if not answered:
+                answered.append(2)
+                invocation.return_value(GLib.Variant("(ua{sv})", (2, {})))
             self.wait()
             return
         self.windows[handle] = (win, reg)

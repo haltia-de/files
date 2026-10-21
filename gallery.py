@@ -17,6 +17,7 @@ kept in ~/.config/haltia/gallery.conf.
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 
@@ -153,7 +154,8 @@ class Gallery(Gtk.Application):
         def work():
             try:
                 changed = self.lib.scan()
-            except OSError:
+            except Exception as exc:  # scanned() must come, or scanning stays True
+                sys.stderr.write("gallery: scan: %s\n" % exc)
                 changed = False
             GLib.idle_add(self.scanned, changed)
 
@@ -205,7 +207,7 @@ class Gallery(Gtk.Application):
         if self.view == "folders" and self.folder:
             inside = [i for i in items if os.path.dirname(i["path"]) == self.folder]
             if inside:
-                self.header.set_title(self.lib.folder_label(self.folder))
+                self.header.set_title(media.shown(self.lib.folder_label(self.folder)))
                 self.header.set_subtitle(library.files_word(len(inside)))
                 self.back_btn.show()
                 self.grid.show([(None, inside)])
@@ -256,8 +258,8 @@ class Gallery(Gtk.Application):
         if self.stack.get_visible_child_name() == "viewer":
             self.viewer.close()
             self.stack.set_visible_child_name("browse")
-            self.header.set_title(self.lib.folder_label(self.folder) if self.folder
-                                  else "Галерея")
+            self.header.set_title(media.shown(self.lib.folder_label(self.folder))
+                                  if self.folder else "Галерея")
             self.back_btn.set_visible(bool(self.folder))
             if self.folder:
                 self.header.set_subtitle(library.files_word(len(self.shown())))
@@ -300,7 +302,7 @@ class Gallery(Gtk.Application):
     def held(self, item):
         if item["kind"] == "folder":
             return
-        name = os.path.basename(item["path"])
+        name = media.shown(os.path.basename(item["path"]))
         actions = ["Сведения", "Удалить"]
 
         # After the long press has ended: a dialog inside its handler would
@@ -318,7 +320,7 @@ class Gallery(Gtk.Application):
 
     def act(self, action, item):
         if action == "Сведения":
-            lines = [item["path"].replace(HOME, "~", 1),
+            lines = [media.shown(item["path"].replace(HOME, "~", 1)),
                      "%s · %s" % (library.nice_size(item["size"]),
                                   time.strftime("%d.%m.%Y %H:%M",
                                                 time.localtime(item["mtime"])))]
