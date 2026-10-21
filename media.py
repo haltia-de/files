@@ -169,7 +169,7 @@ class Grid:
     """Groups of items as tiles or rows in a scrolled box, built CHUNK at a
     time as one nears the end, SHOWN_MAX at most until «Показать ещё».
     show(groups, rows, keep) takes [(label or None, items)]; with keep the
-    page stays where it was scrolled to. A tap calls opened(item), a long
+    page stays where it was scrolled to (within the first SHOWN_MAX). A tap calls opened(item), a long
     press held(item). Tiles come per_line to a line (five beside the panel,
     fewer beside more)."""
 
@@ -189,9 +189,8 @@ class Grid:
 
     def show(self, groups, rows=False, keep=False):
         adj = self.scroll.get_vadjustment()
-        value, built = (adj.get_value(), self.built) if keep else (0, 0)
-        if not keep:
-            self.limit = SHOWN_MAX
+        value, built = (adj.get_value(), min(self.built, SHOWN_MAX)) if keep else (0, 0)
+        self.limit = SHOWN_MAX
         self.thumbs.reset()
         clear(self.box)
         self.more_btn = None

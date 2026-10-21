@@ -25,6 +25,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 
 from haltia_kit.formats import month, nice_date, nice_duration, nice_size, plural  # noqa: F401
 from haltia_kit.photos import kind_of, media_info
@@ -32,7 +33,7 @@ from haltia_kit.photos import kind_of, media_info
 KINDS = ("photo", "video", "audio")
 LIMIT = 30000  # files at most, so a huge card cannot eat the memory
 DEPTH = 12
-CHECKPOINT = 500  # files read in a scan between writes of the index
+CHECKPOINT_S = 30  # seconds at most between writes of the index in a scan
 
 
 def files_word(n):
@@ -120,7 +121,7 @@ class Library:
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     # ASCII escapes keep names that are not UTF-8 (as surrogates).
-                    json.dump({"items": list(items.values())}, fh)
+                    fh.write(json.dumps({"items": list(items.values())}))
                 os.replace(tmp, self.index_path)
             except BaseException:
                 try:
@@ -142,7 +143,8 @@ class Library:
             old = dict(self.known)
             self.forgotten = set()
         found = walk(roots)
-        fresh, changed, read = {}, False, 0
+        fresh, changed = {}, False
+        saved = time.monotonic()
         for path, size, mtime in found:
             item = old.get(path)
             if not item or item["size"] != size or item["mtime"] != mtime:
@@ -150,9 +152,9 @@ class Library:
                 if item["kind"] != "photo":
                     item.update(media_info(path, item["kind"]))
                 changed = True
-                read += 1
-                if read % CHECKPOINT == 0:  # a long scan cut short keeps its work
+                if time.monotonic() - saved >= CHECKPOINT_S:  # a long scan cut short keeps its work
                     self.save_quietly(fresh)
+                    saved = time.monotonic()
             fresh[path] = item
         with self.lock:
             # Files deleted while the scan went on stay out.

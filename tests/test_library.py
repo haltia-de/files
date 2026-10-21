@@ -121,9 +121,9 @@ def read_and_forget(path, kind):
     return reading(path, kind)
 
 
-library.media_info, library.CHECKPOINT = read_and_forget, 1
+library.media_info, library.CHECKPOINT_S = read_and_forget, 0
 lib.scan()
-library.media_info, library.CHECKPOINT = reading, 500
+library.media_info, library.CHECKPOINT_S = reading, 30
 del lib.save
 assert v1 not in {i["path"] for i in lib.items()}
 assert os.path.join(home, "Музыка/other.mp3") in {i["path"] for i in lib.items()}
