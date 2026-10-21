@@ -342,7 +342,12 @@ class Gallery(Gtk.Application):
         elif action == "Удалить":
             try:
                 Gio.File.new_for_path(item["path"]).trash(None)
-            except GLib.Error:
+            except GLib.Error as exc:
+                if not exc.matches(Gio.io_error_quark(), Gio.IOErrorEnum.NOT_SUPPORTED):
+                    self.toast("Не удалось переместить в корзину: %s" % exc.message)
+                    return False
+                if not dialogs.ask(self.win, "Удалить навсегда?", "Удалить"):
+                    return False
                 try:
                     os.unlink(item["path"])
                 except OSError as exc:
