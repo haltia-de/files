@@ -1,5 +1,23 @@
 # Что нового · What's new
 
+## 2.2.0 (2026-10-22)
+
+### Русский
+
+- «Документы» — новая простая программа для чтения PDF: крупные кнопки страниц, листание пальцем и масштаб; открывается из «Файлов» и «Сообщений»
+- «Отправить» в «Файлах» и «Галерее»: передайте файл другой программе
+- Кнопка «Домой» на первых экранах
+- Переименование никогда не перезаписывает другой файл, вставка не оставляет недокопированный файл, удаление без корзины сначала просит подтверждение
+- «Галерея» остаётся лёгкой с тысячами фото, а необычные имена файлов больше не ломают её
+
+### English
+
+- Documents is a new simple PDF reader: large page buttons, swipe and zoom; opens from Files and Messages
+- Share in Files and Gallery: send a file to another program
+- A Home button on the first screens
+- Renaming never overwrites another file, pasting never leaves a partly copied file, and deleting without the trash asks for confirmation first
+- Gallery stays light with thousands of photos, and unusual file names no longer break it
+
 ## 2.1.0 (2026-10-20)
 
 ### Русский
