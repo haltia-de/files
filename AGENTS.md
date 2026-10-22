@@ -19,16 +19,22 @@ command `b8k-files` stay, hidden, until 3.0 (ADR 0004).
 - `media.py`: tiles, rows, viewer and sound bar shared by both.
 - `portal.py`: the xdg-desktop-portal `FileChooser` backend over D-Bus;
   `chooser.py`: its window; `choosing.py`: its decisions, without GTK.
+- `haltia-documents`: Документы, the PDF viewer (`io.github.haltia_de.Documents`,
+  package `haltia-documents`, an APKBUILD subpackage); `reading.py`: its
+  PDF, pages and zoom over poppler-glib, without GTK, installed into
+  `lib/haltia-documents`.
 - `data/`: `.desktop` files, icons, metainfo, `haltia.portal`.
 - `tests/`: `test_library.py`, `test_choosing.py`, `test_back.py` (app.back,
-  and the portal started on a private bus with `dbus-run-session`).
+  and the portal started on a private bus with `dbus-run-session`),
+  `test_documents.py` (reading.py on PDFs made with cairo).
 - `install.sh`, `packaging/alpine/APKBUILD`, `.github/workflows/release.yml`.
 
 ## Run and check
 
 From the checkout: `python3 haltia-files`, `python3 haltia-files --gallery`
 (haltia-kit must be importable). Tests: `python3 tests/test_library.py` and
-`python3 tests/test_choosing.py`; the APKBUILD runs the same in `check()`.
+`python3 tests/test_choosing.py`; `python3 haltia-documents FILE.pdf` and
+`python3 tests/test_documents.py` (poppler-glib, py3-cairo); the APKBUILD runs the same in `check()`.
 
 ## Install and package
 

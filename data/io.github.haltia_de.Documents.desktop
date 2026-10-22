@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Documents
+Name[ru]=Документы
+Comment=Read PDF documents page by page
+Comment[ru]=Чтение PDF-документов по страницам
+Exec=haltia-documents %U
+Icon=io.github.haltia_de.Documents
+Terminal=false
+Categories=GTK;Office;Viewer;
+MimeType=application/pdf;
+Keywords=pdf;document;viewer;документ;пдф;
+StartupNotify=true
+X-Haltia-Home=false
