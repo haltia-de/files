@@ -10,7 +10,8 @@ provides="b8k-files=$pkgver-r$pkgrel"
 replaces="b8k-files"
 license="GPL-2.0-only"
 depends="python3 py3-gobject3 gtk+3.0 py3-haltia-kit"
-checkdepends="gdk-pixbuf"
+checkdepends="gdk-pixbuf poppler-glib py3-cairo"
+subpackages="haltia-documents:documents:noarch"
 source="$pkgname-$pkgver.tar.gz::https://github.com/haltia-de/files/archive/v$pkgver.tar.gz"
 builddir="$srcdir/files-$pkgver"
 
@@ -19,10 +20,22 @@ check() {
 	python3 tests/test_choosing.py
 	python3 tests/test_operations.py
 	python3 tests/test_share.py
+	python3 tests/test_documents.py
 }
 
 package() {
 	sh ./install.sh "$pkgdir" /usr
+}
+
+# Документы, the PDF viewer: a package of its own, so Файлы go without poppler.
+documents() {
+	pkgdesc="Documents: a simple PDF viewer (GTK 3)"
+	depends="python3 py3-gobject3 py3-cairo gtk+3.0 poppler-glib py3-haltia-kit"
+	amove usr/bin/haltia-documents \
+		usr/lib/haltia-documents \
+		usr/share/applications/io.github.haltia_de.Documents.desktop \
+		usr/share/icons/hicolor/scalable/apps/io.github.haltia_de.Documents.svg \
+		usr/share/metainfo/io.github.haltia_de.Documents.metainfo.xml
 }
 
 # `abuild checksum` fills this in for a release.

@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0
+"""Документы: a simple PDF viewer, one page at a time (reading.py does the
+PDF, without GTK).
+
+It opens the file it is given (haltia-documents FILE, or a GApplication
+open from Файлы, Сообщения or Firefox); it has no screen of its own to pick
+a file. Big «‹» «›» under the page and a swipe turn pages, «стр. 3 из 12»
+between them; the page fits the width until «+»/«−» or a pinch zooms it,
+«По ширине» fits it again. «Отправить» hands the file to haltia_kit.share
+when that is there. A file that is not a PDF, is broken or has a password
+gets a sentence instead of the page. Pages are rendered in a thread, a few
+kept (reading.Pages), never the whole document.
+"""
+import os
+import sys
+import threading
+
+import gi
+from gi.repository import GLib
+
+DOCUMENTS_ID = "io.github.haltia_de.Documents"
+# Under Wayland GTK 3 names the window by the program name: the program's id.
+GLib.set_prgname(DOCUMENTS_ID)
+
+gi.require_version("Gdk", "3.0")
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gdk, Gio, Gtk  # noqa: E402,F811
+
+try:
+    from haltia_kit import share  # noqa: E402
+except ImportError:  # a haltia-kit before share: no «Отправить»
+    share = None
+
+# reading: next to this file in a checkout, else installed.
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, HERE if os.path.exists(os.path.join(HERE, "reading.py"))
+                else os.path.join(os.path.dirname(HERE), "lib", "haltia-documents"))
+import reading  # noqa: E402
+
+MARGIN = 32  # px between the page and the window's sides when it fits the width
+SWIPE = 600  # px a second: a swipe faster than this turns the page
+
+CSS = b"""
+window, .page { background-color: #e6e6e4; }
+headerbar { min-height: 104px; }
+headerbar label.title { font-size: 30px; font-weight: bold; color: #2e3436; }
+button.tool, button.turn {
+  background-image: none; border: none; box-shadow: none; border-radius: 16px;
+  min-height: 72px; min-width: 72px; font-size: 24px; padding: 0 16px;
+  background-color: #f2f2f0; color: #2e3436;
+}
+button.turn { min-width: 120px; font-size: 40px; }
+button.back { font-size: 30px; min-height: 72px; min-width: 72px; }
+.bar { background-color: #dcdcda; padding: 8px 16px; }
+label.counter { font-size: 26px; color: #2e3436; }
+label.note { font-size: 26px; color: #5e5c64; }
+"""
+
+# Inside the Haltia shell (its session sets XDG_CURRENT_DESKTOP=Haltia:GNOME).
+ON_HALTIA = "Haltia" in os.environ.get("XDG_CURRENT_DESKTOP", "").split(":")
+
+
+def tool(label, callback, cls="tool"):
+    btn = Gtk.Button(label=label)
+    btn.get_style_context().add_class(cls)
+    btn.connect("clicked", lambda *_a: callback())
+    return btn
+
+
+class Documents(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id=DOCUMENTS_ID, flags=Gio.ApplicationFlags.HANDLES_OPEN)
+        # The shell's contract: app.back is enabled only when there is a step
+        # back. The viewer is one screen, so never; the shell shows «домой».
+        self.back_action = Gio.SimpleAction.new("back", None)
+        self.back_action.set_enabled(False)
+        self.add_action(self.back_action)
+        self.win = None
+        self.doc = self.pages = self.reader = None
+        self.surface = None  # the page drawn
+        self.shown_page = None
+        self.pinch = 1.0  # the zoom of a pinch going on, over the page drawn
+        self.pinched_at = 0  # µs, monotonic: when the last pinch ended
+        self.loading = 0  # the file asked for last; older ones are dropped
+        self.drawn = 0  # the page asked for last; older renders are dropped
+        self.width = 0
+
+    def do_activate(self):
+        if self.win:
+            self.win.present()
+            return
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.win = Gtk.ApplicationWindow(application=self, title="Документы")
+        self.win.set_default_size(1160, 800)
+        self.win.connect("key-press-event", self.on_key)
+        self.header = Gtk.HeaderBar(title="Документы")
+        # The Haltia shell closes windows with its own button; any other desktop
+        # gets the usual window buttons in the header.
+        self.header.set_show_close_button(not ON_HALTIA)
+        # Keep the shell's home button and the title out of each other's way;
+        # «←» stays hidden while app.back is off, which is always here.
+        corner = Gtk.Box()
+        corner.set_size_request(110, -1)
+        back = Gtk.Button(label="←", action_name="app.back")
+        back.get_style_context().add_class("back")
+        back.set_no_show_all(True)
+        corner.pack_start(back, False, False, 0)
+        self.header.pack_start(corner)
+        self.send_btn = tool("Отправить", self.send)
+        self.send_btn.set_no_show_all(True)
+        self.header.pack_end(self.send_btn)
+        self.plus_btn = tool("+", lambda: self.zoom(reading.ZOOM_STEP))
+        self.minus_btn = tool("−", lambda: self.zoom(1 / reading.ZOOM_STEP))
+        self.header.pack_end(self.plus_btn)
+        self.header.pack_end(self.minus_btn)
+        self.win.set_titlebar(self.header)
+
+        self.stack = Gtk.Stack()
+        self.note = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER)
+        self.note.get_style_context().add_class("note")
+        self.note.set_margin_start(48)
+        self.note.set_margin_end(48)
+        self.stack.add_named(self.note, "note")
+
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        page.get_style_context().add_class("page")
+        self.scroll = Gtk.ScrolledWindow()
+        self.scroll.connect("size-allocate", self.on_size)
+        self.area = Gtk.DrawingArea(halign=Gtk.Align.CENTER, valign=Gtk.Align.START,
+                                    margin=MARGIN // 2)
+        self.area.connect("draw", self.on_draw)
+        self.scroll.add(self.area)
+        page.pack_start(self.scroll, True, True, 0)
+        # In the capture phase: the scrolled window's own dragging comes after.
+        self.swipe = Gtk.GestureSwipe(widget=self.scroll)
+        self.swipe.set_touch_only(True)
+        self.swipe.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self.swipe.connect("swipe", self.on_swipe)
+        self.pinching = Gtk.GestureZoom(widget=self.scroll)
+        self.pinching.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self.pinching.connect("scale-changed", self.on_pinch)
+        self.pinching.connect("end", self.on_pinch_end)
+
+        bar = Gtk.Box(spacing=16)
+        bar.get_style_context().add_class("bar")
+        self.prev_btn = tool("‹", lambda: self.turn(-1), "turn")
+        self.next_btn = tool("›", lambda: self.turn(1), "turn")
+        self.counter = Gtk.Label()
+        self.counter.get_style_context().add_class("counter")
+        self.fit_btn = tool("По ширине", self.fit)
+        self.fit_btn.set_no_show_all(True)
+        bar.pack_start(self.prev_btn, False, False, 0)
+        bar.set_center_widget(self.counter)
+        bar.pack_end(self.next_btn, False, False, 0)
+        bar.pack_end(self.fit_btn, False, False, 0)
+        page.pack_end(bar, False, False, 0)
+        self.stack.add_named(page, "page")
+
+        self.win.add(self.stack)
+        self.win.show_all()
+        self.plus_btn.hide()
+        self.minus_btn.hide()
+        if not self.doc and not self.loading:
+            self.say("Откройте PDF-документ из Файлов или Сообщений.")
+
+    def do_open(self, files, _n, _hint):
+        self.do_activate()
+        path = files[0].get_path() if files else None
+        if path:
+            self.load(path)
+        else:
+            self.say("Этот документ не на планшете: его нельзя открыть.")
+
+    # --- the document -----------------------------------------------------------
+    def say(self, text):
+        self.note.set_text(text)
+        self.stack.set_visible_child_name("note")
+        for btn in (self.plus_btn, self.minus_btn, self.send_btn):
+            btn.hide()
+
+    def load(self, path):
+        """Opens a PDF in a thread; it is shown when it comes."""
+        self.loading += 1
+        token = self.loading
+        self.header.set_title(GLib.filename_display_name(os.path.basename(path)))
+        self.say("Открываю…")
+
+        def work():
+            try:
+                result = reading.Document(path)
+            except reading.Refused as exc:
+                result = exc
+            GLib.idle_add(self.loaded, token, result)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def loaded(self, token, result):
+        if token != self.loading:
+            return False
+        if isinstance(result, reading.Refused):
+            self.doc = self.pages = self.reader = None
+            self.say(str(result))
+            return False
+        self.doc, self.pages, self.reader = result, reading.Pages(result), reading.Reader(len(result))
+        self.surface = self.shown_page = None
+        self.header.set_title(result.name)
+        self.stack.set_visible_child_name("page")
+        self.plus_btn.show()
+        self.minus_btn.show()
+        self.send_btn.set_visible(share is not None)
+        self.show_page()
+        return False
+
+    def send(self):
+        if self.doc and share is not None:
+            share.send(self.doc.path)
+
+    # --- the page ---------------------------------------------------------------
+    def view_width(self):
+        # The page's margins and room for a scrollbar that is not an overlay.
+        return max(1, self.scroll.get_allocated_width() - MARGIN - 16)
+
+    def scale(self, i):
+        return self.reader.scale(self.doc.sizes[i][0], self.view_width())
+
+    def show_page(self):
+        """The counter and buttons at once, the page when it is rendered."""
+        reader, pages, doc = self.reader, self.pages, self.doc
+        if reader is None:
+            return
+        i = reader.page
+        scale = self.scale(i)
+        self.counter.set_text(reader.counter())
+        self.prev_btn.set_sensitive(reader.can_turn(-1))
+        self.next_btn.set_sensitive(reader.can_turn(1))
+        self.fit_btn.set_visible(reader.zoom is not None)
+        self.drawn += 1
+        token = self.drawn
+        surface = pages.peek(i, scale)
+        if surface is not None:
+            self.rendered(token, i, surface)
+        after = i + 1 if reader.can_turn(1) else None
+        after_scale = self.scale(after) if after is not None else None
+
+        def wanted():
+            return token == self.drawn
+
+        def work():
+            if not wanted():
+                return
+            if surface is None:
+                try:
+                    done = pages.get(i, scale, wanted)
+                except Exception as exc:  # cairo.Error, MemoryError
+                    sys.stderr.write("documents: page %d: %s\n" % (i + 1, exc))
+                    return
+                if done is None:
+                    return
+                GLib.idle_add(self.rendered, token, i, done)
+            if after is not None and wanted():
+                try:
+                    pages.get(after, after_scale, wanted)  # the next page, ready for «›»
+                except Exception:
+                    pass
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def rendered(self, token, i, surface):
+        if token != self.drawn:
+            return False
+        self.surface, self.pinch = surface, 1.0
+        self.area.set_size_request(surface.get_width(), surface.get_height())
+        self.area.queue_draw()
+        if i != self.shown_page:
+            self.shown_page = i
+            self.scroll.get_vadjustment().set_value(0)
+        return False
+
+    def on_draw(self, _area, cr):
+        if self.surface is not None:
+            cr.scale(self.pinch, self.pinch)
+            cr.set_source_surface(self.surface, 0, 0)
+            cr.paint()
+        return False
+
+    def on_size(self, *_a):
+        width = self.view_width()
+        if width != self.width:
+            self.width = width
+            if self.reader is not None and self.reader.zoom is None:
+                GLib.idle_add(self.refit)
+
+    def refit(self):
+        self.show_page()
+        return False
+
+    def turn(self, d):
+        if self.reader is not None and self.reader.turn(d):
+            self.show_page()
+
+    def zoom(self, factor):
+        if self.reader is not None:
+            self.reader.zoom_to(self.scale(self.reader.page) * factor)
+            self.show_page()
+
+    def fit(self):
+        if self.reader is not None:
+            self.reader.fit()
+            self.show_page()
+
+    # --- fingers and keys ---------------------------------------------------------
+    def on_swipe(self, _gesture, vx, vy):
+        if GLib.get_monotonic_time() - self.pinched_at < 500000:  # the fingers of a pinch
+            return
+        hadj = self.scroll.get_hadjustment()
+        wide = hadj.get_upper() - hadj.get_page_size() > 1  # a zoomed page moves instead
+        if not wide and abs(vx) > SWIPE and abs(vx) > 2 * abs(vy):
+            self.turn(-1 if vx > 0 else 1)
+
+    def on_pinch(self, _gesture, scale):
+        """The page drawn grows or shrinks with the fingers; it is rendered
+        anew at that size when they lift."""
+        if self.surface is not None and self.reader is not None:
+            now = self.scale(self.reader.page)
+            self.pinch = min(reading.ZOOM_MAX, max(reading.ZOOM_MIN, now * scale)) / now
+            self.area.set_size_request(int(self.surface.get_width() * self.pinch),
+                                       int(self.surface.get_height() * self.pinch))
+            self.area.queue_draw()
+
+    def on_pinch_end(self, *_a):
+        self.pinched_at = GLib.get_monotonic_time()
+        if self.reader is not None and self.pinch != 1.0:
+            self.zoom(self.pinch)
+
+    def on_key(self, _win, event):
+        key = Gdk.keyval_name(event.keyval) or ""
+        if key in ("Left", "Page_Up", "BackSpace"):
+            self.turn(-1)
+        elif key in ("Right", "Page_Down", "space"):
+            self.turn(1)
+        elif key in ("plus", "equal", "KP_Add"):
+            self.zoom(reading.ZOOM_STEP)
+        elif key in ("minus", "KP_Subtract"):
+            self.zoom(1 / reading.ZOOM_STEP)
+        else:
+            return False
+        return True
+
+
+if __name__ == "__main__":
+    sys.exit(Documents().run(sys.argv))
