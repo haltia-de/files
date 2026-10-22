@@ -31,6 +31,11 @@ from haltia_kit.settings import Settings  # noqa: E402
 import choosing  # noqa: E402
 import media  # noqa: E402
 
+try:
+    from haltia_kit.gallery import Thumbs
+except ImportError:
+    from media import Thumbs
+
 CHOOSER_ID = "io.github.haltia_de.FileChooser"
 NARROW = 1000  # a screen narrower than this (portrait) gets places on top
 RECENT = "Недавние"
@@ -222,7 +227,7 @@ class Chooser(Gtk.Window):
         self.where.set_ellipsize(Pango.EllipsizeMode.START)
         self.where.get_style_context().add_class("where")
         inner.pack_start(self.where, False, False, 0)
-        self.thumbs = media.Thumbs()
+        self.thumbs = Thumbs()
         # Three tiles a line: they fit beside the places in landscape and
         # across the screen in portrait.
         self.grid = media.Grid(self.thumbs, self.on_item, lambda _item: None, per_line=3)

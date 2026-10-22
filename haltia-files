@@ -160,17 +160,22 @@ def rename_noreplace(src, target):
         raise FileExistsError(errno.EEXIST, "Файл с таким именем уже существует", target)
     libc = ctypes.CDLL(None, use_errno=True)
     renameat2 = getattr(libc, "renameat2", None)
-    if renameat2 is None:
-        raise OSError(errno.ENOTSUP, "Безопасное переименование не поддерживается", target)
-    renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
-                          ctypes.c_char_p, ctypes.c_uint]
-    renameat2.restype = ctypes.c_int
-    # AT_FDCWD = -100; RENAME_NOREPLACE = 1 (Linux).
-    if renameat2(-100, os.fsencode(src), -100, os.fsencode(target), 1):
+    if renameat2 is not None:
+        renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
+                              ctypes.c_char_p, ctypes.c_uint]
+        renameat2.restype = ctypes.c_int
+        # AT_FDCWD = -100; RENAME_NOREPLACE = 1 (Linux).
+        if not renameat2(-100, os.fsencode(src), -100, os.fsencode(target), 1):
+            return
         code = ctypes.get_errno()
-        message = ("Файл с таким именем уже существует" if code == errno.EEXIST
-                   else os.strerror(code))
-        raise OSError(code, message, target)
+        if code not in (errno.EINVAL, errno.ENOSYS):
+            message = ("Файл с таким именем уже существует" if code == errno.EEXIST
+                       else os.strerror(code))
+            raise OSError(code, message, target)
+    # Older kernels and some filesystems lack RENAME_NOREPLACE. Linking
+    # reserves the destination atomically; directories fail safely here.
+    os.link(src, target, follow_symlinks=False)
+    os.unlink(src)
 
 
 def paste_file(src, target, cut=False):
@@ -185,7 +190,9 @@ def paste_file(src, target, cut=False):
     with tempfile.TemporaryDirectory(prefix=".haltia-copy-",
                                      dir=os.path.dirname(target)) as stage:
         pending = os.path.join(stage, "content")
-        if os.path.isdir(src):
+        if cut and os.path.islink(src):
+            os.symlink(os.readlink(src), pending)
+        elif os.path.isdir(src):
             shutil.copytree(src, pending, symlinks=True)
         else:
             shutil.copy2(src, pending)

@@ -48,13 +48,36 @@ class OperationsTests(unittest.TestCase):
                 self.assertEqual(self.target.read_text(), "original")
             self.target.unlink()
 
-    def test_missing_renameat2_fails_safely(self):
-        with patch.object(ctypes, "CDLL", return_value=object()):
-            with self.assertRaises(OSError) as error:
+    def test_rename_fallback(self):
+        from unittest.mock import Mock
+
+        for code in (None, errno.EINVAL, errno.ENOSYS):
+            libc = object() if code is None else Mock(renameat2=Mock(return_value=-1))
+            with self.subTest(code=code), patch.object(ctypes, "CDLL", return_value=libc), \
+                    patch.object(ctypes, "get_errno", return_value=code):
+                self.src.write_text("complete")
                 rename(self.src, self.target)
-        self.assertEqual(error.exception.errno, errno.ENOTSUP)
-        self.assertTrue(self.src.exists())
-        self.assertFalse(self.target.exists())
+                self.assertFalse(self.src.exists())
+                self.assertEqual(self.target.read_text(), "complete")
+                self.src.write_text("source")
+                with patch.object(os.path, "lexists", return_value=False):
+                    with self.assertRaises(FileExistsError):
+                        rename(self.src, self.target)
+                self.assertEqual(self.target.read_text(), "complete")
+                self.assertEqual(self.src.read_text(), "source")
+                self.target.unlink()
+                self.src.unlink()
+                self.src.symlink_to("missing")
+                rename(self.src, self.target)
+                self.assertEqual(os.readlink(self.target), "missing")
+                self.assertFalse(self.src.is_symlink())
+                self.target.unlink()
+                self.src.mkdir()
+                with self.assertRaises(OSError):
+                    rename(self.src, self.target)
+                self.assertTrue(self.src.is_dir())
+                self.assertFalse(self.target.exists())
+                self.src.rmdir()
 
     def test_rename_race(self):
         # A target appearing after the preliminary check is still protected.
@@ -139,6 +162,28 @@ class OperationsTests(unittest.TestCase):
             paste(self.src, self.target, cut=True)
         self.assertFalse(self.src.exists())
         self.assertEqual(self.target.read_text(), "complete")
+
+    def test_cut_symlinks_cross_device(self):
+        folder = self.root / "folder"
+        folder.mkdir()
+        (folder / "child").write_text("untouched")
+        self.src.unlink()
+
+        def cross_device(src, target):
+            if Path(src) == self.src:
+                raise OSError(errno.EXDEV, "cross device")
+            rename(src, target)
+
+        for link in ("folder", "folder/child", "missing"):
+            with self.subTest(link=link):
+                self.src.symlink_to(link)
+                with patch.dict(namespace, rename_noreplace=cross_device):
+                    paste(self.src, self.target, cut=True)
+                self.assertFalse(self.src.is_symlink())
+                self.assertEqual(os.readlink(self.target), link)
+                self.assertEqual((folder / "child").read_text(), "untouched")
+                self.assertEqual(list(self.dest.iterdir()), [self.target])
+                self.target.unlink()
 
     def test_copy_directory_and_cut(self):
         self.src.unlink()
