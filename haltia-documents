@@ -246,19 +246,24 @@ class Documents(Gtk.Application):
         after = i + 1 if reader.can_turn(1) else None
         after_scale = self.scale(after) if after is not None else None
 
+        def wanted():
+            return token == self.drawn
+
         def work():
-            if token != self.drawn:
+            if not wanted():
                 return
             if surface is None:
                 try:
-                    done = pages.get(i, scale)
+                    done = pages.get(i, scale, wanted)
                 except Exception as exc:  # cairo.Error, MemoryError
                     sys.stderr.write("documents: page %d: %s\n" % (i + 1, exc))
                     return
+                if done is None:
+                    return
                 GLib.idle_add(self.rendered, token, i, done)
-            if after is not None and token == self.drawn:
+            if after is not None and wanted():
                 try:
-                    pages.get(after, after_scale)  # the next page, ready for «›»
+                    pages.get(after, after_scale, wanted)  # the next page, ready for «›»
                 except Exception:
                     pass
 

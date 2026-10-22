@@ -34,6 +34,33 @@ def make_pdf(path, pages, size=(595, 842)):
     return path
 
 
+def make_encrypted_pdf(path):
+    """A one-page PDF under the standard security handler (RC4, revision 2)
+    whose /O and /U match no password, the empty one included: poppler
+    asks for a password to open it."""
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        b"<< /Filter /Standard /V 1 /R 2 /O <" + b"ab" * 32 + b"> /U <"
+        + b"cd" * 32 + b"> /P -4 >>",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for n, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % n + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    for offset in offsets:
+        out += b"%010d 00000 n \n" % offset
+    out += (b"trailer\n<< /Size %d /Root 1 0 R /Encrypt 4 0 R /ID [<" % (len(objects) + 1)
+            + b"01" * 16 + b"> <" + b"01" * 16 + b">] >>\nstartxref\n%d\n%%%%EOF\n" % xref)
+    with open(path, "wb") as fh:
+        fh.write(out)
+    return path
+
+
 @unittest.skipIf(reading is None, "needs py3-cairo and poppler-glib: %s"
                  % (MISSING if reading is None else ""))
 class DocumentTests(unittest.TestCase):
@@ -75,6 +102,18 @@ class DocumentTests(unittest.TestCase):
         self.assertEqual(len(pages.pages), 2)
         self.assertIsNone(pages.peek(0, 1.0))  # the oldest went
         self.assertIsNotNone(pages.peek(2, 1.0))
+
+    def test_render_does_not_block_peek(self):
+        doc = reading.Document(make_pdf(self.path("two.pdf"), 2))
+        pages = reading.Pages(doc)
+        first = pages.get(0, 1.0)
+        with pages.render_lock:  # another page is rendering
+            self.assertIs(pages.peek(0, 1.0), first)
+            self.assertIs(pages.get(0, 1.0), first)  # kept: no wait either
+        # A page no longer asked for is not rendered after the wait.
+        self.assertIsNone(pages.get(1, 1.0, wanted=lambda: False))
+        self.assertIsNone(pages.peek(1, 1.0))
+        self.assertIsNotNone(pages.get(1, 1.0, wanted=lambda: True))
 
     def test_turning_and_counter(self):
         doc = reading.Document(make_pdf(self.path("twelve.pdf"), 12))
@@ -126,6 +165,9 @@ class DocumentTests(unittest.TestCase):
         with open(self.path("empty.pdf"), "wb"):
             pass
         self.refused(self.path("empty.pdf"), "не PDF")
+
+    def test_password(self):
+        self.refused(make_encrypted_pdf(self.path("secret.pdf")), "защищён паролем")
 
     def test_missing(self):
         self.refused(self.path("nowhere.pdf"), "Не удалось открыть")

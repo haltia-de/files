@@ -32,7 +32,7 @@ def is_pdf(path):
 
 class Document:
     """An open PDF: len(), sizes[i] (points) and render(i, scale). Poppler
-    is used by one thread at a time (Pages holds the lock)."""
+    is used by one thread at a time (Pages holds render_lock)."""
 
     def __init__(self, path):
         self.path = path
@@ -75,12 +75,15 @@ class Document:
 
 class Pages:
     """Rendered pages, PAGES_KEPT at most, the oldest dropped first:
-    get(i, scale) renders what is not kept (blocking), peek only looks."""
+    get(i, scale) renders what is not kept (blocking), peek only looks.
+    lock guards the kept pages only, so peek never waits for a render;
+    render_lock lets one render at a time into poppler."""
 
     def __init__(self, document, kept=PAGES_KEPT):
         self.document, self.kept = document, kept
         self.pages = collections.OrderedDict()
         self.lock = threading.Lock()
+        self.render_lock = threading.Lock()
 
     @staticmethod
     def key(i, scale):
@@ -90,17 +93,32 @@ class Pages:
         with self.lock:
             return self.pages.get(self.key(i, scale))
 
-    def get(self, i, scale):
-        key = self.key(i, scale)
+    def kept_page(self, key):
         with self.lock:
             if key in self.pages:
                 self.pages.move_to_end(key)
                 return self.pages[key]
+        return None
+
+    def get(self, i, scale, wanted=None):
+        """The page, rendered if not kept; None when wanted() turns false
+        while waiting for another render (the page is no longer asked for)."""
+        key = self.key(i, scale)
+        surface = self.kept_page(key)
+        if surface is not None:
+            return surface
+        with self.render_lock:
+            if wanted is not None and not wanted():
+                return None
+            surface = self.kept_page(key)  # rendered while this one waited
+            if surface is not None:
+                return surface
             surface = self.document.render(i, key[1])
+        with self.lock:
             self.pages[key] = surface
             while len(self.pages) > self.kept:
                 self.pages.popitem(last=False)
-            return surface
+        return surface
 
 
 class Reader:
