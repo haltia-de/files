@@ -13,7 +13,7 @@ video in haltia-vplay, sound in the bar at the bottom (the folder's sound
 files one after another), PDF in Документы (haltia-documents, when it is
 installed), PDF without it and web pages in Firefox, anything else
 with the system's default. A long press offers Редактировать (a text file, in
-Блокнот), Копировать, Вырезать, Переименовать and Удалить (to the trash); «Вставить» puts what was copied or cut into
+Блокнот), Отправить (a file, when the kit has haltia_kit.share), Копировать, Вырезать, Переименовать and Удалить (to the trash); «Вставить» puts what was copied or cut into
 the folder shown. Hidden files stay hidden until «Скрытые» shows them.
 
 With --portal it is the file chooser other programs get (portal.py,
@@ -477,6 +477,8 @@ class Files(Gtk.Application):
         is_dir = bool(item.get("dir"))
         name = media.shown(os.path.basename(full))
         actions = ["Копировать", "Вырезать", "Переименовать", "Удалить"]
+        if media.sendable(item):
+            actions.insert(0, "Отправить")
         if not is_dir and is_text(full):
             actions.insert(0, "Редактировать")
 
@@ -497,6 +499,8 @@ class Files(Gtk.Application):
         name = media.shown(os.path.basename(full))
         if action == "Редактировать":
             self.spawn([TEXT, full] if os.access(TEXT, os.X_OK) else ["xdg-open", full])
+        elif action == "Отправить":
+            media.send(self.win, full)
         elif action in ("Копировать", "Вырезать"):
             self.clip = ("copy" if action == "Копировать" else "cut", [full])
             self.paste_btn.set_label("Вставить «%s»" % name if len(name) < 24 else "Вставить")

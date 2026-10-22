@@ -24,7 +24,8 @@ command `b8k-files` stay, hidden, until 3.0 (ADR 0004).
   PDF, pages and zoom over poppler-glib, without GTK, installed into
   `lib/haltia-documents`.
 - `data/`: `.desktop` files, icons, metainfo, `haltia.portal`.
-- `tests/`: `test_library.py`, `test_choosing.py`, `test_back.py` (app.back,
+- `tests/`: `test_library.py`, `test_choosing.py`, `test_share.py` («Отправить»,
+  without GTK or kit), `test_back.py` (app.back,
   and the portal started on a private bus with `dbus-run-session`),
   `test_documents.py` (reading.py on PDFs made with cairo).
 - `install.sh`, `packaging/alpine/APKBUILD`, `.github/workflows/release.yml`.

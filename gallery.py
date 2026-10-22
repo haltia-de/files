@@ -5,7 +5,8 @@ tablet in one place, whatever folder it was saved into.
 The row under the header picks Все, Фото, Видео or Музыка; the button in
 the header picks how they are shown: Плитки (newest first), Список, По
 датам (by month) or По папкам (a folder a row; a tap shows its files, ←
-goes back). A photo opens in the viewer, a video in haltia-vplay, a sound
+goes back). A photo opens in the viewer (with «Отправить» when the kit has
+haltia_kit.share), a video in haltia-vplay, a sound
 plays in the bar at the bottom while one goes on looking. A long press
 offers Сведения and Удалить (to the trash, after a question).
 
@@ -124,7 +125,7 @@ class Gallery(Gtk.Application):
         self.empty.set_no_show_all(True)
         page.pack_start(self.empty, True, True, 0)
         self.stack.add_named(page, "browse")
-        self.viewer = media.Viewer(self.header.set_title, self.held)
+        self.viewer = media.Viewer(self.header.set_title, self.held, self.win)
         self.stack.add_named(self.viewer, "viewer")
         outer.pack_start(self.stack, True, True, 0)
         self.bar = media.SoundBar(self.thumbs, self.toast)
