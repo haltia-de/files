@@ -10,7 +10,8 @@ videos and sound covers as small pictures either way. A tap on a folder
 opens it, a tap on a file opens it in the program for it: text in Блокнот
 (haltia-text), photos here (the viewer goes through the folder's photos),
 video in haltia-vplay, sound in the bar at the bottom (the folder's sound
-files one after another), PDF and web pages in Firefox, anything else
+files one after another), PDF in Документы (haltia-documents, when it is
+installed), PDF without it and web pages in Firefox, anything else
 with the system's default. A long press offers Редактировать (a text file, in
 Блокнот), Копировать, Вырезать, Переименовать and Удалить (to the trash); «Вставить» puts what was copied or cut into
 the folder shown. Hidden files stay hidden until «Скрытые» shows them.
@@ -428,6 +429,8 @@ class Files(Gtk.Application):
         elif mime.startswith(("video/", "audio/")) and os.access(PLAYER, os.X_OK):
             self.bar.pause()
             self.spawn(media.video_argv(PLAYER, os.path.basename(path), path))
+        elif mime == "application/pdf" and shutil.which("haltia-documents"):
+            self.spawn([shutil.which("haltia-documents"), path])
         elif mime in ("application/pdf", "text/html"):
             self.spawn([shutil.which("haltia-launch") or shutil.which("b8k-launch") or "b8k-launch",
                         "url", "file://" + path])

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.haltia_de.Documents</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-2.0-only</project_license>
+  <name>Documents</name>
+  <name xml:lang="ru">Документы</name>
+  <summary>Read PDF documents page by page</summary>
+  <description>
+    <p xml:lang="ru">Простой просмотр PDF: страница за страницей, крупные кнопки «‹» «›» и листание пальцем, страница по ширине экрана или крупнее, «Отправить» — другой программе.</p>
+    <p>Calm, touch-first and simple, part of the Haltia desktop; at home on any GTK desktop.</p>
+  </description>
+  <launchable type="desktop-id">io.github.haltia_de.Documents.desktop</launchable>
+  <provides><mediatype>application/pdf</mediatype></provides>
+  <url type="homepage">https://github.com/haltia-de/files</url>
+  <developer id="io.github.haltia_de"><name>Mikhail Nevskiy</name></developer>
+  <content_rating type="oars-1.1"/>
+  <requires><control>touch</control></requires>
+  <releases>
+    <release version="2.1.0" date="2026-10-20">
+      <description>
+        <ul>
+          <li>A simple file chooser for every program: large folders, Recent, photos as pictures, dates in words</li>
+          <li>Saving with one button: the name and the folder are picked for you, and no file is written over</li>
+          <li>Works through the standard xdg-desktop-portal, and without it through the Haltia shell</li>
+        </ul>
+        <ul>
+          <li xml:lang="ru">Простое окно выбора файлов для всех программ: крупные папки, «Недавние», фото картинками, даты словами</li>
+          <li xml:lang="ru">Сохранение одной кнопкой: имя и папка подбираются сами, существующий файл не перезаписывается</li>
+          <li xml:lang="ru">Работает через стандартный портал xdg-desktop-portal, а без него — через оболочку Haltia</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+</component>
