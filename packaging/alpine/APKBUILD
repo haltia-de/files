@@ -18,6 +18,7 @@ check() {
 	python3 tests/test_library.py
 	python3 tests/test_choosing.py
 	python3 tests/test_operations.py
+	python3 tests/test_share.py
 }
 
 package() {

@@ -14,7 +14,24 @@ gi.require_version("Gtk", "3.0")
 from haltia_kit import photos, sound  # noqa: E402
 from gi.repository import Gio, GLib, Gtk, Pango  # noqa: E402
 
+try:
+    from haltia_kit import share  # noqa: E402
+except ImportError:  # an older kit: no «Отправить»
+    share = None
+
 import library  # noqa: E402
+
+
+def sendable(item):
+    """Whether «Отправить» is offered for an item: a file, and a kit that
+    has haltia_kit.share."""
+    return (share is not None and bool(item.get("path")) and not item.get("dir")
+            and item.get("kind") not in ("folder", "note"))
+
+
+def send(win, path):
+    """Offers a file to the programs that take it (haltia_kit.share)."""
+    share.send(path, win)
 
 
 def back_action(app, callback):
@@ -66,6 +83,9 @@ label.section { font-size: 26px; font-weight: bold; color: #2e3436; margin: 12px
   border: 1px solid #c0bfbc; box-shadow: none; border-radius: 14px;
   min-height: 64px; min-width: 72px; font-size: 26px; }
 .soundbar scale { min-height: 40px; }
+button.send { background-image: none; border: none; box-shadow: none; border-radius: 16px;
+  min-height: 72px; font-size: 26px; padding: 0 28px; margin: 16px;
+  background-color: #3584e4; color: #ffffff; }
 """
 
 
@@ -327,12 +347,20 @@ class Grid:
 
 class Viewer(photos.Viewer):
     """haltia_kit's photo viewer for items: show(items, i), drop(item);
-    held(item) on a long press."""
+    held(item) on a long press. With win, a big «Отправить» in the corner
+    sends the photo shown (when the kit has haltia_kit.share)."""
 
-    def __init__(self, titled, held):
+    def __init__(self, titled, held, win=None):
         self.by_path = {}
         super().__init__(lambda title: titled(shown(title)),
                          lambda path: held(self.by_path.get(path, {"path": path})))
+        if win is not None and share is not None:
+            button = Gtk.Button(label="Отправить", halign=Gtk.Align.END,
+                                valign=Gtk.Align.START)
+            button.get_style_context().add_class("send")
+            button.connect("clicked", lambda *_a: self.paths and send(
+                win, self.paths[self.i]))
+            self.add_overlay(button)
 
     def show(self, items, i=0):
         self.by_path = {x["path"]: x for x in items}
