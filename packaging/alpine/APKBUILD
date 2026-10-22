@@ -1,6 +1,6 @@
 # Maintainer: Mikhail Nevskiy <rensomail@gmail.com>
 pkgname=haltia-files
-pkgver=2.1.0
+pkgver=2.2.0
 pkgrel=0
 pkgdesc="Files and Gallery: folders, photos, video and music (GTK 3)"
 url="https://github.com/haltia-de/files"
@@ -9,7 +9,7 @@ arch="noarch"
 provides="b8k-files=$pkgver-r$pkgrel"
 replaces="b8k-files"
 license="GPL-2.0-only"
-depends="python3 py3-gobject3 gtk+3.0 py3-haltia-kit"
+depends="python3 py3-gobject3 gtk+3.0 py3-haltia-kit>=2.3.0"
 checkdepends="gdk-pixbuf poppler-glib py3-cairo"
 subpackages="haltia-documents:documents:noarch"
 source="$pkgname-$pkgver.tar.gz::https://github.com/haltia-de/files/archive/v$pkgver.tar.gz"
@@ -30,7 +30,7 @@ package() {
 # Документы, the PDF viewer: a package of its own, so Файлы go without poppler.
 documents() {
 	pkgdesc="Documents: a simple PDF viewer (GTK 3)"
-	depends="python3 py3-gobject3 py3-cairo gtk+3.0 poppler-glib py3-haltia-kit"
+	depends="python3 py3-gobject3 py3-cairo gtk+3.0 poppler-glib py3-haltia-kit>=2.3.0"
 	amove usr/bin/haltia-documents \
 		usr/lib/haltia-documents \
 		usr/share/applications/io.github.haltia_de.Documents.desktop \

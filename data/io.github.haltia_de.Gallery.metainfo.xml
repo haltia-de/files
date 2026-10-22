@@ -17,6 +17,24 @@
   <content_rating type="oars-1.1"/>
   <requires><control>touch</control></requires>
   <releases>
+    <release version="2.2.0" date="2026-10-22">
+      <description>
+        <ul>
+          <li>Documents is a new simple PDF reader: large page buttons, swipe and zoom; opens from Files and Messages</li>
+          <li>Share in Files and Gallery: send a file to another program</li>
+          <li>A Home button on the first screens</li>
+          <li>Renaming never overwrites another file, pasting never leaves a partly copied file, and deleting without the trash asks for confirmation first</li>
+          <li>Gallery stays light with thousands of photos, and unusual file names no longer break it</li>
+        </ul>
+        <ul>
+          <li xml:lang="ru">«Документы» — новая простая программа для чтения PDF: крупные кнопки страниц, листание пальцем и масштаб; открывается из «Файлов» и «Сообщений»</li>
+          <li xml:lang="ru">«Отправить» в «Файлах» и «Галерее»: передайте файл другой программе</li>
+          <li xml:lang="ru">Кнопка «Домой» на первых экранах</li>
+          <li xml:lang="ru">Переименование никогда не перезаписывает другой файл, вставка не оставляет недокопированный файл, удаление без корзины сначала просит подтверждение</li>
+          <li xml:lang="ru">«Галерея» остаётся лёгкой с тысячами фото, а необычные имена файлов больше не ломают её</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.1.0" date="2026-10-20">
       <description>
         <ul>

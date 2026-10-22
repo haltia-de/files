@@ -17,6 +17,24 @@
   <content_rating type="oars-1.1"/>
   <requires><control>touch</control></requires>
   <releases>
+    <release version="2.2.0" date="2026-10-22">
+      <description>
+        <ul>
+          <li>Documents is a new simple PDF reader: large page buttons, swipe and zoom; opens from Files and Messages</li>
+          <li>Share in Files and Gallery: send a file to another program</li>
+          <li>A Home button on the first screens</li>
+          <li>Renaming never overwrites another file, pasting never leaves a partly copied file, and deleting without the trash asks for confirmation first</li>
+          <li>Gallery stays light with thousands of photos, and unusual file names no longer break it</li>
+        </ul>
+        <ul>
+          <li xml:lang="ru">«Документы» — новая простая программа для чтения PDF: крупные кнопки страниц, листание пальцем и масштаб; открывается из «Файлов» и «Сообщений»</li>
+          <li xml:lang="ru">«Отправить» в «Файлах» и «Галерее»: передайте файл другой программе</li>
+          <li xml:lang="ru">Кнопка «Домой» на первых экранах</li>
+          <li xml:lang="ru">Переименование никогда не перезаписывает другой файл, вставка не оставляет недокопированный файл, удаление без корзины сначала просит подтверждение</li>
+          <li xml:lang="ru">«Галерея» остаётся лёгкой с тысячами фото, а необычные имена файлов больше не ломают её</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.1.0" date="2026-10-20">
       <description>
         <ul>
@@ -29,6 +47,42 @@
           <li xml:lang="ru">Сохранение одной кнопкой: имя и папка подбираются сами, существующий файл не перезаписывается</li>
           <li xml:lang="ru">Работает через стандартный портал xdg-desktop-portal, а без него — через оболочку Haltia</li>
         </ul>
+      </description>
+    </release>
+    <release version="2.0.3" date="2026-10-19">
+      <description>
+        <p>Outside the Haltia shell the window has the desktop's usual buttons, close among them.</p>
+        <p xml:lang="ru">Вне оболочки Haltia у окна есть обычные кнопки рабочего стола, и среди них «Закрыть».</p>
+      </description>
+    </release>
+    <release version="2.0.2" date="2026-10-19">
+      <description>
+        <p>Each version now says what changed; it shows in Settings → Updates.</p>
+        <p xml:lang="ru">У каждой версии теперь есть описание: его видно в «Настройки → Обновления».</p>
+      </description>
+    </release>
+    <release version="2.0.1" date="2026-10-19">
+      <description>
+        <p>A new icon in Haltia's common style.</p>
+        <p xml:lang="ru">Новая иконка в общем стиле Haltia.</p>
+      </description>
+    </release>
+    <release version="2.0.0" date="2026-10-19">
+      <description>
+        <p>Part of Haltia: a new name; its settings and the gallery's cache moved by themselves.</p>
+        <p xml:lang="ru">Программа стала частью Haltia: новое имя, настройки и кэш галереи переехали сами.</p>
+      </description>
+    </release>
+    <release version="1.4.2" date="2026-10-18">
+      <description>
+        <p>Releases come as signed Alpine packages.</p>
+        <p xml:lang="ru">Выпуски приходят подписанными пакетами.</p>
+      </description>
+    </release>
+    <release version="1.4.1" date="2026-10-18">
+      <description>
+        <p>Videos open in Видео's player wherever it is installed.</p>
+        <p xml:lang="ru">Видео открываются в плеере программы «Видео», где бы он ни был установлен.</p>
       </description>
     </release>
   </releases>
