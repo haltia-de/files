@@ -294,11 +294,13 @@ class Files(Gtk.Application):
         self.win.show_all()
         self.go(HOME)
 
-    def fill_places(self):
+    def fill_places(self, places=None):
+        """The places' buttons; places as read in the folder's thread, else
+        read here (a few stat calls)."""
         for child in self.places_box.get_children():
             self.places_box.remove(child)
             child.destroy()
-        for name, path in choosing.places(everything=True):
+        for name, path in places if places is not None else choosing.places(everything=True):
             btn = Gtk.Button(label=name)
             ctx = btn.get_style_context()
             ctx.add_class("place")
@@ -310,20 +312,29 @@ class Files(Gtk.Application):
 
     # --- folders ------------------------------------------------------------
     def go(self, path):
-        """Opens a folder: it is read in a thread and shown when it comes."""
+        """Opens a folder: it is read in a thread and shown when it comes.
+        The thread also makes the items (a stat, a date and a type guess
+        per file, up to LIST_MAX) and reads the places, so that the GTK
+        thread only builds the first rows."""
         self.going += 1
         token, hidden = self.going, self.hidden
 
         def work():
-            GLib.idle_add(self.listed, token, path, read_folder(path, hidden))
+            entries = read_folder(path, hidden)
+            if not isinstance(entries, OSError):
+                entries = [self.item(name, full, st, is_dir)
+                           for name, full, st, is_dir in entries]
+            GLib.idle_add(self.listed, token, path, entries,
+                          choosing.places(everything=True))
 
         threading.Thread(target=work, daemon=True).start()
 
-    def listed(self, token, path, entries):
+    def listed(self, token, path, items, places=None):
+        """A folder read by go(): items as item() makes them, or the OSError."""
         if token != self.going:
             return False
-        if isinstance(entries, OSError):
-            self.toast("Нельзя открыть: %s" % entries.strerror)
+        if isinstance(items, OSError):
+            self.toast("Нельзя открыть: %s" % items.strerror)
             return False
         self.path = path
         self.header.set_title(media.shown(os.path.basename(path.rstrip("/"))) or "Система")
@@ -331,8 +342,7 @@ class Files(Gtk.Application):
                                         else path))
         self.back_action.set_enabled(
             self.stack.get_visible_child_name() == "viewer" or path not in (HOME, "/"))
-        self.fill_places()
-        items = [self.item(name, full, st, is_dir) for name, full, st, is_dir in entries]
+        self.fill_places(places)
         if items:
             self.grid.show([(None, items)], rows=not self.tiles)
         else:
@@ -368,7 +378,8 @@ class Files(Gtk.Application):
 
     def item(self, name, full, st, is_dir):
         """A folder or file as the grid shows it; media files get their small
-        picture from the library. What a folder holds comes later (count)."""
+        picture from the library. What a folder holds comes later (count).
+        No GTK: go() calls it in its thread."""
         if is_dir:
             return {"kind": "folder", "label": name, "path": full, "sub": "", "dir": True,
                     "sub_label": None}
