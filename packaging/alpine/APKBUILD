@@ -1,6 +1,6 @@
 # Maintainer: Mikhail Nevskiy <rensomail@gmail.com>
 pkgname=haltia-files
-pkgver=2.2.0
+pkgver=2.2.1
 pkgrel=0
 pkgdesc="Files and Gallery: folders, photos, video and music (GTK 3)"
 url="https://github.com/haltia-de/files"
