@@ -62,6 +62,9 @@ def back_button(header, action):
 TILE = 208  # px of a tile's picture; five fit beside the panel
 ROW_PIC = 88
 CHUNK = 60  # tiles added at a time, more as one scrolls near the end
+# Tiles built before a new folder's first frame; the rest of its first CHUNK
+# follows in low-priority idle steps of this size, after the frame is drawn.
+FIRST = 20
 SHOWN_MAX = 600  # tiles built until «Показать ещё»: each keeps its small picture
 ICONS = {"photo": "image-x-generic", "video": "video-x-generic", "audio": "audio-x-generic",
          "folder": "folder"}
@@ -213,7 +216,8 @@ def check(item, halign, valign):
 
 class Grid:
     """Groups of items as tiles or rows in a scrolled box, built CHUNK at a
-    time as one nears the end, SHOWN_MAX at most until «Показать ещё».
+    time as one nears the end (the first FIRST at once, the rest of the
+    first CHUNK in idle steps), SHOWN_MAX at most until «Показать ещё».
     show(groups, rows, keep) takes [(label or None, items)]; with keep the
     page stays where it was scrolled to (within the first SHOWN_MAX). A tap calls opened(item), a long
     press held(item). Tiles come per_line to a line (five beside the panel,
@@ -232,6 +236,7 @@ class Grid:
         self.built, self.limit = 0, SHOWN_MAX
         self.more_btn = None
         self.held = False
+        self.shows = 0  # show() calls; an idle step of an older one stops
 
     def show(self, groups, rows=False, keep=False):
         adj = self.scroll.get_vadjustment()
@@ -246,9 +251,22 @@ class Grid:
         self.built = 0
         adj.set_value(0)
         self.box.show()
-        self.more(max(CHUNK, built))
-        if value:  # once the new tiles have their sizes
+        self.shows += 1
+        if value:  # all at once, then scrolled once the new tiles have their sizes
+            self.more(max(CHUNK, built))
             GLib.idle_add(self._scroll_to, value)
+        else:
+            self.more(FIRST)
+            if CHUNK > FIRST:
+                GLib.idle_add(self._step, self.shows, CHUNK, priority=GLib.PRIORITY_LOW)
+
+    def _step(self, shows, upto):
+        """The next FIRST items of a new folder, until upto are built."""
+        if shows != self.shows or self.gi >= len(self.groups) or self.built >= min(
+                upto, self.limit):
+            return False
+        self.more(min(FIRST, upto - self.built))
+        return True
 
     def more(self, n):
         """n items more at the end; only the new ones are shown."""

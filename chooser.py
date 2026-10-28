@@ -18,6 +18,8 @@ The helper's switch «Все файлы при выборе» (Настройк�
 files. The window's «✕» (the shell's) or Escape is Отмена.
 """
 import os
+import threading
+import traceback
 
 import gi
 
@@ -155,6 +157,7 @@ class Chooser(Gtk.Window):
         self.root = None  # the place's own folder
         self.saving_folder = None
         self.save_name = ""
+        self.reading = 0  # the folder read asked for last; older ones are dropped
         self.get_style_context().add_class("chooser")
         self.set_default_size(1160, 800)
         if ON_HALTIA:
@@ -299,12 +302,14 @@ class Chooser(Gtk.Window):
             btn.show()
         self.filters_box.show()
 
-    def _fill_places(self):
+    def _fill_places(self, places=None):
+        """The places' buttons; places as a reading thread found them, else
+        read here (a few stat calls)."""
         media.clear(self.places_box)
         items = []
         if self.request.mode == "open":
             items.append((RECENT, None))
-        items += choosing.places(self.everything)
+        items += places if places is not None else choosing.places(self.everything)
         for label, path in items:
             btn = Gtk.Button(label=label)
             btn.get_style_context().add_class("place")
@@ -322,66 +327,142 @@ class Chooser(Gtk.Window):
     def folders_only(self):
         return self.request.mode in ("folder", "save")
 
-    def place_of(self, path):
+    def place_of(self, path, places=None):
         """The place a folder lies in, the deepest one."""
         best = None
-        for label, root in choosing.places(self.everything):
+        for label, root in places if places is not None else choosing.places(self.everything):
             if path == root or path.startswith(root.rstrip("/") + "/"):
                 if best is None or len(root) > len(best[1]):
                     best = (label, root)
         return best
 
+    def _read(self, work, apply):
+        """work() in a thread (folders, stat calls), then apply(result) on
+        the GTK thread, unless a newer read was asked for meanwhile or the
+        window is done: a tap on a slow folder must not freeze the window."""
+        self.reading += 1
+        token = self.reading
+
+        def run():
+            try:
+                result = work()
+            except Exception:  # noqa: BLE001 - shown in the log, the window stays
+                traceback.print_exc()
+                return
+            GLib.idle_add(done, result)
+
+        def done(result):
+            if token == self.reading and not self.finished:
+                apply(result)
+            return False
+
+        threading.Thread(target=run, daemon=True).start()
+        return token
+
     def go(self, path, label=None):
-        entries = choosing.listing(path, self.request.current_filter(), self.folders_only(),
-                                   self.everything)
-        if entries is None:
+        """Opens a folder: read in a thread, shown when it comes."""
+        filt, folders_only, everything = (self.request.current_filter(), self.folders_only(),
+                                          self.everything)
+
+        def work():
+            entries = choosing.listing(path, filt, folders_only, everything)
+            if entries is None:
+                return None
+            places = choosing.places(everything)
+            return ([self.item(e) for e in entries], places, self.place_of(path, places),
+                    choosing.media_share(entries) >= 0.5)
+
+        token = self._read(work, lambda result: self._went(token, path, label, result))
+
+    def _went(self, token, path, label, result):
+        if result is None:
             dialogs.info(self, "Эту папку нельзя открыть.")
             return
+        items, places, found, tiles = result
         self.path = path
-        found = self.place_of(path)
         self.place = label or (found[0] if found else None)
         self.root = found[1] if found else None
         if found and path == found[1]:
             self.where.set_text(found[0])
         else:
             self.where.set_text(media.shown(os.path.basename(path.rstrip("/"))) or "Система")
-        self._fill_places()
-        self.show_entries(entries, "Здесь нет подходящих файлов" if not self.folders_only()
-                          else "Здесь нет папок")
+        self._fill_places(places)
+        self.show_entries(items, "Здесь нет подходящих файлов" if not self.folders_only()
+                          else "Здесь нет папок", tiles)
         self._update_back()
         self._update_bottom()
+        if not tiles:
+            self.count(token, [i for i in items if i.get("dir")])
 
     def show_recent(self):
-        roots = [p for _l, p in choosing.places(False)]
-        entries = choosing.recent(roots, self.request.current_filter())
+        """Недавние: the newest files of all places, found in a thread."""
+        filt, everything = self.request.current_filter(), self.everything
+
+        def work():
+            places = choosing.places(everything)
+            roots = [p for _l, p in choosing.places(False)]
+            entries = choosing.recent(roots, filt)
+            return ([self.item(e) for e in entries], places,
+                    choosing.media_share(entries) >= 0.5)
+
+        self._read(work, self._recent)
+
+    def _recent(self, result):
+        items, places, tiles = result
         self.path, self.place, self.root = None, RECENT, None
         self.where.set_text("Новые файлы из всех папок")
-        self._fill_places()
-        self.show_entries(entries, "Новых файлов нет")
+        self._fill_places(places)
+        self.show_entries(items, "Новых файлов нет", tiles)
         self._update_back()
         self._update_bottom()
 
-    def show_entries(self, entries, empty):
-        if not entries:
+    def show_entries(self, items, empty, tiles):
+        """items as item() made them; the marks of several files are set here."""
+        if not items:
             self.grid.show([(None, [{"kind": "note", "label": empty, "sub": "",
                                      "path": None}])], rows=True)
             return
-        tiles = choosing.media_share(entries) >= 0.5
-        self.grid.show([(None, [self.item(e) for e in entries])], rows=not tiles)
+        if self.request.multiple:
+            for item in items:
+                if not item.get("dir"):
+                    item["marked"] = item["path"] in self.marked
+        self.grid.show([(None, items)], rows=not tiles)
+
+    def count(self, token, folders):
+        """What each folder holds, read in a thread after the folder is shown;
+        each row gets its line as it comes."""
+        everything = self.everything
+
+        def work():
+            for item in folders:
+                if token != self.reading or self.finished:
+                    return
+                try:
+                    sub = choosing.objects(len([n for n in os.listdir(item["path"])
+                                                if everything or not n.startswith(".")]))
+                except OSError:
+                    sub = "нет доступа"
+                GLib.idle_add(self._counted, token, item, sub)
+
+        if folders:
+            threading.Thread(target=work, daemon=True).start()
+
+    def _counted(self, token, item, sub):
+        if token == self.reading and not self.finished:
+            item["sub"] = sub
+            if item["sub_label"]:
+                item["sub_label"].set_text(sub)
+        return False
 
     def item(self, entry):
+        """A folder or file as the grid shows it. No GTK: the reading thread
+        makes them; what a folder holds comes later (count)."""
         is_dir, name, path, mtime = entry
         if is_dir:
-            try:
-                sub = choosing.objects(len([n for n in os.listdir(path)
-                                            if self.everything or not n.startswith(".")]))
-            except OSError:
-                sub = "нет доступа"
-            return {"kind": "folder", "label": name, "path": path, "sub": sub, "dir": True}
+            return {"kind": "folder", "label": name, "path": path, "sub": "", "dir": True,
+                    "sub_label": None}
         from haltia_kit.photos import kind_of
         item = {"path": path, "label": name, "mtime": mtime, "sub": choosing.when(mtime)}
-        if self.request.multiple:
-            item["marked"] = path in self.marked
         kind = kind_of(name)
         if kind:
             item["kind"] = kind
