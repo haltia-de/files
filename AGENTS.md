@@ -42,6 +42,16 @@ From the checkout: `python3 haltia-files`, `python3 haltia-files --gallery`
 `sh install.sh [ROOT] [PREFIX]` (PREFIX defaults to `/usr/local`; the
 package passes `/usr`) installs the command, the modules into
 `lib/haltia-files`, the data files and the D-Bus service for the portal.
+Python never caches the script it is started by, so `haltia-files` and
+`haltia-documents` go in twice: their code as the modules
+`lib/haltia-files/haltia_files_main.py` and
+`lib/haltia-documents/haltia_documents_main.py` (compiled with the rest by
+the package build, haltia-de/ci), and `bin/NAME` as a stub that runs it with
+`runpy.run_module(..., run_name="__main__", alter_sys=False)`, so `sys.argv`
+(and the `python3 /usr/bin/NAME` command line) stays as it was. Code that
+needs its own place uses `__file__`, which is the module in `lib/` (where
+its sibling modules are), not `bin/NAME`. The scripts stay as they are in
+the checkout, which the tests load by path.
 The Alpine package is `packaging/alpine/APKBUILD` (`haltia-files`, noarch).
 
 ## Release
