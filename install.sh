@@ -16,9 +16,27 @@ prefix=${2:-/usr/local}
 here=$(cd "$(dirname "$0")" && pwd)
 lib=$root$prefix/lib/haltia-files
 share=$root$prefix/share
-install -D -m 755 "$here/haltia-files" "$root$prefix/bin/haltia-files"
-ln -sfn haltia-files "$root$prefix/bin/b8k-files"
+# stub NAME LIBDIR: Python never caches the script it is started by, so a
+# command's code goes in as the module LIBDIR/NAME_main.py (- as _), compiled
+# with the others by the package build, and bin/NAME is a stub that runs it
+# with the same sys.argv (the shell matches `python3 /usr/bin/NAME`).
+stub() {
+	_module=$(printf %s "$1" | tr - _)_main
+	install -D -m 644 "$here/$1" "$root$prefix/lib/$2/$_module.py"
+	mkdir -p "$root$prefix/bin"
+	cat >"$root$prefix/bin/$1" <<EOF
+#!/usr/bin/python3
+# The code is $prefix/lib/$2/$_module.py, run as a module so Python loads it compiled.
+import runpy
+import sys
+sys.path.insert(0, "$prefix/lib/$2")
+runpy.run_module("$_module", run_name="__main__", alter_sys=False)
+EOF
+	chmod 755 "$root$prefix/bin/$1"
+}
 rm -rf "$lib" "$root$prefix/lib/b8k-files"
+stub haltia-files haltia-files
+ln -sfn haltia-files "$root$prefix/bin/b8k-files"
 for f in library media gallery choosing chooser portal; do
 	install -D -m 644 "$here/$f.py" "$lib/$f.py"
 done
@@ -34,8 +52,8 @@ done
 # Документы (haltia-documents), the PDF viewer: its own command and module
 # folder, so the package splits it off; it opens from Файлы and Сообщения,
 # not from the home screen (X-Haltia-Home=false).
-install -D -m 755 "$here/haltia-documents" "$root$prefix/bin/haltia-documents"
 rm -rf "$root$prefix/lib/haltia-documents"
+stub haltia-documents haltia-documents
 install -D -m 644 "$here/reading.py" "$root$prefix/lib/haltia-documents/reading.py"
 id=io.github.haltia_de.Documents
 install -D -m 644 "$here/data/$id.desktop" "$share/applications/$id.desktop"
