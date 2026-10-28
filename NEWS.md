@@ -1,5 +1,15 @@
 # Что нового · What's new
 
+## 2.2.2 (2026-10-28)
+
+### Русский
+
+- «Файлы», «Галерея», «Документы» и окно выбора файлов открываются быстрее: их код загружается уже скомпилированным.
+
+### English
+
+- Files, Gallery, Documents and the file chooser open faster: their code is loaded already compiled.
+
 ## 2.2.1 (2026-10-28)
 
 ### Русский
