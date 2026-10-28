@@ -1,5 +1,19 @@
 # Что нового · What's new
 
+## 2.2.1 (2026-10-28)
+
+### Русский
+
+- «Файлы» и окно выбора файлов открывают папки, не замирая: содержимое читается в фоне
+- «Недавние» в окне выбора больше не задерживают нажатия
+- В большой папке первые строки видны сразу, остальные появляются следом
+
+### English
+
+- Files and the file chooser open folders without freezing: the contents are read in the background
+- Recent in the file chooser no longer holds up taps
+- In a large folder the first rows show at once and the rest follow
+
 ## 2.2.0 (2026-10-22)
 
 ### Русский
