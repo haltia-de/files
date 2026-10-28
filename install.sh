@@ -25,7 +25,7 @@ stub() {
 	install -D -m 644 "$here/$1" "$root$prefix/lib/$2/$_module.py"
 	mkdir -p "$root$prefix/bin"
 	cat >"$root$prefix/bin/$1" <<EOF
-#!/usr/bin/python3
+#!/usr/bin/env python3
 # The code is $prefix/lib/$2/$_module.py, run as a module so Python loads it compiled.
 import runpy
 import sys
